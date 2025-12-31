@@ -145,22 +145,22 @@ public class MyCarAgent : Agent
         Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
         float forwardSpeed = Vector3.Dot(vel, transform.forward);  // 实际前进速度
         
-        float speedThreshold = constantForwardSpeed * 0.6f;  // 60%阈值
+        float speedThreshold = constantForwardSpeed * 0.8f;  // 80%阈值
         float speedRatio;
         
         if (forwardSpeed >= speedThreshold)
         {
-            // 速度足够（≥60%目标），给予全额奖励
+            // 速度足够（≥80%目标），给予全额奖励
             speedRatio = 1.0f;
         }
-        else if (forwardSpeed >= 0.05f)
+        else if (forwardSpeed >= 0.10f)
         {
-            // 速度介于5cm/s和60%阈值之间，线性衰减
+            // 速度介于10cm/s和80%阈值之间，线性衰减
             speedRatio = forwardSpeed / speedThreshold;
         }
         else
         {
-            // 几乎停止（<5cm/s），无奖励
+            // 几乎停止（<10cm/s），无奖励
             speedRatio = 0f;
         }
         
