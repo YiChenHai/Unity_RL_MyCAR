@@ -433,7 +433,7 @@ MonoBehaviour:
   m_Model: {fileID: 0}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MyCarAgent_cVzMo_251223
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -481,8 +481,8 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.25
-  maxLateralSpeed: 0.2
-  maxOmegaDeg: 45
+  maxLateralSpeed: 0.1
+  maxOmegaDeg: 80
   maxField: 8
   derailThreshold: 1.5
   maxEpisodeTime: 40
