@@ -145,7 +145,7 @@ public class MyCarAgent : Agent
         Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
         float forwardSpeed = Vector3.Dot(vel, transform.forward);  // 实际前进速度
         
-        float speedThreshold = constantForwardSpeed * 0.65f;  // 65%阈值
+        float speedThreshold = constantForwardSpeed * 0.60f;  // 60%阈值
         float speedRatio;
         
         if (forwardSpeed >= speedThreshold)
@@ -153,9 +153,9 @@ public class MyCarAgent : Agent
             // 速度足够（≥80%目标），给予全额奖励
             speedRatio = 1.0f;
         }
-        else if (forwardSpeed >= 0.10f)
+        else if (forwardSpeed >= 0.05f)
         {
-            // 速度介于10cm/s和65%阈值之间，线性衰减
+            // 速度介于10cm/s和60%阈值之间，线性衰减
             speedRatio = forwardSpeed / speedThreshold;
         }
         else
@@ -165,7 +165,7 @@ public class MyCarAgent : Agent
         }
         
         // 最终奖励 = 对齐分数 × 前进因子
-        // 转弯时只要保持≥65%目标速度，就不会损失奖励
+        // 转弯时只要保持≥60%目标速度，就不会损失奖励
         return alignment * speedRatio;
     }
 
