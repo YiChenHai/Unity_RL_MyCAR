@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 101ba4a176c3bb544a45acf87e6c9e13, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 3223815cf109f8e4ea52211fa4b7f485, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -470,6 +470,7 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
+  preferInspectorValues: 0
   tape: {fileID: 1462255779}
   sensors:
   - {fileID: 1179175742}
@@ -480,14 +481,14 @@ MonoBehaviour:
   - {fileID: 1240964160}
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
-  constantForwardSpeed: 0.25
+  constantForwardSpeed: 0.2
   maxLateralSpeed: 0.1
   maxOmegaDeg: 80
   maxField: 8
   derailThreshold: 1.5
   maxEpisodeTime: 40
   startPos: {x: 0, y: 0.15, z: 1}
-  startRot: {x: 0, y: 0, z: 0, w: 1}
+  startRot: {x: 0, y: 0, z: 0, w: 0}
 --- !u!114 &714007409
 MonoBehaviour:
   m_ObjectHideFlags: 0

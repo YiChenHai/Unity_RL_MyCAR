@@ -7,6 +7,13 @@ using Unity.MLAgents.Actuators;
 
 public class MyCarAgent : Agent
 {
+    [Header("Config Priority")]
+    [Tooltip("勾选: 使用Unity Inspector(场景/Prefab序列化)中的值。\n不勾选: 运行时与编辑器中将被脚本默认值覆盖(以代码为准)。")]
+    // 参数优先级开关：
+    // - true  : 以 Inspector(序列化) 为准（方便在 Unity 中调参）
+    // - false : 以代码默认值为准（强制覆盖 Inspector，避免旧序列化值干扰）
+    public bool preferInspectorValues = true;
+
     [Header("Refs")]
     public MagneticTape tape;
     [Tooltip("传感器顺序: [0]=前左, [1]=前中, [2]=前右, [3]=后左, [4]=后中, [5]=后右")]
@@ -15,9 +22,9 @@ public class MyCarAgent : Agent
     public MyCar_Motion myCarMotion;
 
     [Header("Control limits (body frame - Unity标准)")]
-    public float constantForwardSpeed = 0.25f;  // vz 固定前进速度 m/s
-    public float maxLateralSpeed = 0.2f;       // vx (横向速度) m/s
-    public float maxOmegaDeg = 45f;            // omega (自转角速度) deg/s - 防止轮子翻转
+    public float constantForwardSpeed = 0.2f;  // vz 固定前进速度 m/s
+    public float maxLateralSpeed = 0.1f;       // vx (横向速度) m/s
+    public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
 
     [Header("Normalization")]
     public float maxField = 8f;                // 磁场最大值
@@ -26,17 +33,92 @@ public class MyCarAgent : Agent
     public float derailThreshold = 2f;         // 脱轨阈值（中心传感器低于此值终止）
 
     [Header("Episode")]
-    public float maxEpisodeTime = 20f;
+    public float maxEpisodeTime = 40f;
     private float episodeTimer = 0f;
 
     [Header("Start pose")]
-    public Vector3 startPos = new Vector3(1f, 0.25f, -1.233f);
+    public Vector3 startPos = new Vector3(0f, 0.15f, 1f);
     public Quaternion startRot = Quaternion.Euler(0f, 0f, 0f);
+
+    // ===== Script defaults (used when preferInspectorValues == false) =====
+    // 说明：Unity会序列化(保存)Inspector中的字段值；因此“脚本里写的初始化默认值”
+    // 并不会自动覆盖已经存在的组件实例(场景对象/Prefab)的序列化数据。
+    //
+    // 这里的 Default* 变量就是一份“脚本默认值副本”：
+    // - 当 preferInspectorValues == false 时，会用这些 Default* 值覆盖实例字段
+    // - 用意是让你能明确选择“以代码为准”，且不受旧的序列化值影响
+    //
+    // 维护建议：
+    // - 想改“代码默认值”就改下面这些 Default* 常量
+    // - Inspector 里的同名字段只是运行时参数容器，是否生效由 preferInspectorValues 决定
+
+	
+    // 默认前进速度 vz（m/s）。当 preferInspectorValues=false 时，会写入 constantForwardSpeed。
+    private const float DefaultConstantForwardSpeed = 0.2f;
+	
+    // 最大横向速度 vx（m/s）。当 preferInspectorValues=false 时，会写入 maxLateralSpeed。
+    private const float DefaultMaxLateralSpeed = 0.1f;
+	
+    // 最大自转角速度上限（deg/s）。当 preferInspectorValues=false 时，会写入 maxOmegaDeg。
+    private const float DefaultMaxOmegaDeg = 80f;
+	
+    // 磁场强度归一化的分母（maxField）。观测中使用 mag.magnitude/maxField 归一化。
+    private const float DefaultMaxField = 8f;
+	
+    // 脱轨判定阈值：前中/后中传感器强度低于该值即判定脱轨并结束回合。
+    private const float DefaultDerailThreshold = 1.5f;
+	
+    // 单回合最大时长（秒）。超过则判定超时结束回合。
+    private const float DefaultMaxEpisodeTime = 40f;
+	
+    // 回合起始位置（世界坐标）。OnEpisodeBegin 时传送到该位置。
+    private static readonly Vector3 DefaultStartPos = new Vector3(0f, 0.15f, 1f);
+	
+    // 回合起始朝向（欧拉角 0,0,0）。OnEpisodeBegin 时设置该旋转。
+    // 这里用 default 做占位，ApplyScriptDefaults 内部会写成 Quaternion.Euler(0,0,0)。
+    private static readonly Quaternion DefaultStartRot = default;
+
+    // 防止 OnValidate/Initialize 触发连锁赋值时发生重复进入（递归/重入）。
+    private bool _applyingDefaults = false;
 
     public override void Initialize()
     {
         base.Initialize();
         if (rb == null) rb = GetComponent<Rigidbody>();
+
+        if (!preferInspectorValues)
+        {
+            ApplyScriptDefaults();
+        }
+    }
+
+    // Unity 编辑器回调：当 Inspector 字段被修改、脚本重载、或勾选/取消勾选开关时会触发。
+    private void OnValidate()
+    {
+        // 在编辑器中切换开关时，立即体现“以代码为准”的效果
+        if (!preferInspectorValues)
+        {
+            ApplyScriptDefaults();
+        }
+    }
+
+    // 将 Default* 这套“代码默认值副本”覆盖写回到实例字段。
+    // 仅在 preferInspectorValues == false 时调用。
+    private void ApplyScriptDefaults()
+    {
+        if (_applyingDefaults) return;
+        _applyingDefaults = true;
+
+        constantForwardSpeed = DefaultConstantForwardSpeed;
+        maxLateralSpeed = DefaultMaxLateralSpeed;
+        maxOmegaDeg = DefaultMaxOmegaDeg;
+        maxField = DefaultMaxField;
+        derailThreshold = DefaultDerailThreshold;
+        maxEpisodeTime = DefaultMaxEpisodeTime;
+        startPos = DefaultStartPos;
+        startRot = DefaultStartRot == default ? Quaternion.Euler(0f, 0f, 0f) : DefaultStartRot;
+
+        _applyingDefaults = false;
     }
 
     public override void OnEpisodeBegin() 
