@@ -150,25 +150,25 @@ public class MyCarAgent : Agent
             else sensor.AddObservation(0f);
         }
 
-        // 7-8: 当前运动状态（车身坐标系）- AI决策反馈
+        // 7-9: 当前运动状态（车身坐标系）- AI决策反馈
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
         
-        sensor.AddObservation(localVel.x / Mathf.Max(0.001f, maxLateralSpeed));   // 7: 横向速度 (Unity X轴)
+        sensor.AddObservation(localVel.z / Mathf.Max(0.001f, 1));  // 7: 前进速度 (Unity Z轴)
+        sensor.AddObservation(localVel.x / Mathf.Max(0.001f, 1));      // 8: 横向速度 (Unity X轴)
         
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -1f, 1f));    // 8: 角速度 omega
+        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -1f, 1f));       // 9: 角速度 omega
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     { 
-        // 连续动作：0=vx比例(横向), 1=omega比例(自转)
-        float a_vx = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
-        float a_w  = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        // 连续动作：0=omega比例(自转)，禁用横向移动
+        float a_w = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
 
-        // 映射到真实控制量（vz固定，只控制vx和omega）
+        // 映射到真实控制量（vz固定，vx禁用，只控制omega）
         float vz = constantForwardSpeed;                        // 固定前进速度
-        float vx = a_vx * maxLateralSpeed;                     // 横向速度
+        float vx = 0f;                                          // 禁用横向移动
         float omega = a_w * maxOmegaDeg * Mathf.Deg2Rad;       // 自转角速度 rad/s
 
         // 下发给 MyCar_Motion 控制车辆
@@ -214,14 +214,24 @@ public class MyCarAgent : Agent
     {
         if (s == null || s.Length < 6) return 0f;
 
-        // ========== 对齐奖励：前后左右对称性 ==========
+        // ========== 对齐奖励：中心强度 × 对称性 ==========
+        
+        // 1. 中心强度因子：前中、后中传感器强度（判断是否在轨迹正上方）
+        float frontCenter = s[1];   // 前中
+        float rearCenter = s[4];    // 后中
+        float centerAvg = (frontCenter + rearCenter) * 0.5f;
+        float centerStrength = Mathf.Clamp01(centerAvg / Mathf.Max(1e-6f, maxField));
+        
+        // 2. 对称性因子：前后左右对称性（判断车身姿态是否对齐）
         // 前排对称：前左 vs 前右
         float frontSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[0] - s[2]) / maxField);
         // 后排对称：后左 vs 后右
         float rearSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[3] - s[5]) / maxField);
-        
         // 只有前后都对称时才给高分（取最小值，确保整车对齐）
-        float alignment = Mathf.Min(frontSymmetry, rearSymmetry);
+        float symmetry = Mathf.Min(frontSymmetry, rearSymmetry);
+        
+        // 综合对齐分数：既要在轨迹上方（中心强），又要姿态对齐（对称）
+        float alignment = centerStrength * symmetry;
 
         // ========== 前进速度因子：分段式速度奖励（转弯宽容） ==========
         Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
