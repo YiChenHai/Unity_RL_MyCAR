@@ -24,7 +24,7 @@ public class MyCarAgent : Agent
     [Header("Control limits (body frame - Unity标准)")]
     public float constantForwardSpeed = 0.2f;  // vz 固定前进速度 m/s
     public float maxLateralSpeed = 0.1f;       // vx (横向速度) m/s
-    public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
+    public float maxOmegaDeg = 120f;            // omega (自转角速度) deg/s - 防止轮子翻转
 
     [Header("Normalization")]
     public float maxField = 8f;                // 磁场最大值
@@ -60,7 +60,7 @@ public class MyCarAgent : Agent
     private const float DefaultMaxLateralSpeed = 0.1f;
 	
     // 最大自转角速度上限（deg/s）。当 preferInspectorValues=false 时，会写入 maxOmegaDeg。
-    private const float DefaultMaxOmegaDeg = 80f;
+    private const float DefaultMaxOmegaDeg = 120f;
 	
     // 磁场强度归一化的分母（maxField）。观测中使用 mag.magnitude/maxField 归一化。
     private const float DefaultMaxField = 8f;
