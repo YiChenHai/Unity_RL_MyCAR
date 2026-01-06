@@ -29,12 +29,29 @@ public class MyCarAgent : Agent
     [Header("Normalization")]
     public float maxField = 8f;                // 磁场最大值
 
-    [Header("Termination")]
-    public float derailThreshold = 2f;         // 脱轨阈值（中心传感器低于此值终止）
-
     [Header("Episode")]
     public float maxEpisodeTime = 40f;
     private float episodeTimer = 0f;
+
+    [Header("Derail Detection")]
+    public float derailTimeThreshold = 0.5f;  // 脱轨判定时间阈值（秒）
+    private float derailTimer = 0f;           // 脱轨计时器
+
+    [Header("Reward Params")]
+    public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（15%）
+    public float centerThresholdPercent = 0.65f;   // 对齐状态：中心传感器阈值（65%）
+    public float alignedBonus = 0.5f;              // 对齐状态的额外奖励
+    public float speedHighPercent = 0.6f;          // 速度比例系数为1的阈值（60%）
+    public float speedLowPercent = 0.2f;           // 速度惩罚阈值（20%）
+
+    [Header("Stable Tracking")]
+    public float stableAlignedTime = 0.3f;     // 稳定对齐时间阈值（秒）
+    private float alignedTimer = 0f;           // 对齐状态计时器
+    private bool isStableAligned = false;      // 是否处于稳定对齐状态
+    
+    // 动作记忆（用于观察空间）
+    private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
+    private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
 
     [Header("Start pose")]
     public Vector3 startPos = new Vector3(0f, 0.15f, 1f);
@@ -64,9 +81,6 @@ public class MyCarAgent : Agent
 	
     // 磁场强度归一化的分母（maxField）。观测中使用 mag.magnitude/maxField 归一化。
     private const float DefaultMaxField = 8f;
-	
-    // 脱轨判定阈值：前中/后中传感器强度低于该值即判定脱轨并结束回合。
-    private const float DefaultDerailThreshold = 1.5f;
 	
     // 单回合最大时长（秒）。超过则判定超时结束回合。
     private const float DefaultMaxEpisodeTime = 40f;
@@ -113,7 +127,6 @@ public class MyCarAgent : Agent
         maxLateralSpeed = DefaultMaxLateralSpeed;
         maxOmegaDeg = DefaultMaxOmegaDeg;
         maxField = DefaultMaxField;
-        derailThreshold = DefaultDerailThreshold;
         maxEpisodeTime = DefaultMaxEpisodeTime;
         startPos = DefaultStartPos;
         startRot = DefaultStartRot == default ? Quaternion.Euler(0f, 0f, 0f) : DefaultStartRot;
@@ -135,6 +148,11 @@ public class MyCarAgent : Agent
         if (myCarMotion != null) myCarMotion.SetControl(constantForwardSpeed, 0f, 0f);
 
         episodeTimer = 0f;
+        derailTimer = 0f;
+        alignedTimer = 0f;
+        isStableAligned = false;
+        lastOutputLateralSpeed = 0f;
+        lastOutputAngularSpeed = 0f;
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -150,29 +168,25 @@ public class MyCarAgent : Agent
             else sensor.AddObservation(0f);
         }
 
-        // 7-9: 当前运动状态（车身坐标系）- AI决策反馈
+        // 7-8: 智能体上一次输出的横向速度和自转速度（决策记忆）
+        sensor.AddObservation(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));  // 7: 输出横向速度
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
+        sensor.AddObservation(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));                          // 8: 输出自转速度
+
+        // 9-11: 车身实际运动状态（物理反馈）
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
         
-        sensor.AddObservation(localVel.z / Mathf.Max(0.001f, 1));  // 7: 前进速度 (Unity Z轴)
-        sensor.AddObservation(localVel.x / Mathf.Max(0.001f, 1));      // 8: 横向速度 (Unity X轴)
-        
-        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -1f, 1f));       // 9: 角速度 omega
+        sensor.AddObservation(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 9: 实际前进速度
+        sensor.AddObservation(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 10: 实际横向速度
+        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 11: 实际角速度
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     { 
-        // 连续动作：0=omega比例(自转)，禁用横向移动
-        float a_w = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
-
-        // 映射到真实控制量（vz固定，vx禁用，只控制omega）
-        float vz = constantForwardSpeed;                        // 固定前进速度
-        float vx = 0f;                                          // 禁用横向移动
-        float omega = a_w * maxOmegaDeg * Mathf.Deg2Rad;       // 自转角速度 rad/s
-
-        // 下发给 MyCar_Motion 控制车辆
-        if (myCarMotion != null) myCarMotion.SetControl(vz, vx, omega);
+        // 连续动作：0=横向速度比例，1=自转速度比例
+        float a_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
+        float a_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
 
         // 读取传感器数据
         float[] sensorValues = new float[6];
@@ -184,21 +198,78 @@ public class MyCarAgent : Agent
                 sensorValues[i] = mag.magnitude;
             }
         }
+
+        // ========== 判断对齐状态 ==========
+        bool isAligned = CheckAlignmentState(sensorValues);
         
-        // ========== 终止条件1：脱轨检测 ==========
-        float frontCenter = sensorValues[1];  // 前中
-        float rearCenter = sensorValues[4];   // 后中
-        
-        if (frontCenter < derailThreshold || rearCenter < derailThreshold)
+        // 更新对齐计时器
+        if (isAligned)
         {
-            AddReward(-5f);
-            Debug.Log($"Episode Ended: derailment. frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
-            EndEpisode();
-            return;
+            alignedTimer += Time.fixedDeltaTime;
+            if (alignedTimer >= stableAlignedTime)
+            {
+                isStableAligned = true;
+            }
+        }
+        else
+        {
+            alignedTimer = 0f;
+            isStableAligned = false;
         }
 
-        // ========== 计算对齐奖励 ==========
-        float reward = CalculateReward(sensorValues);
+        // ========== 动作输出处理：稳定对齐时保持平稳 ==========
+        float outputVx, outputOmega;
+        
+        if (isStableAligned)
+        {
+            // 稳定对齐状态：大幅衰减智能体的输出，保持平稳跟随
+            // 使用较小的衰减系数（如0.1），让车辆保持直行而不过度调整
+            outputVx = a_x * maxLateralSpeed * 0.1f;
+            outputOmega = a_w * maxOmegaDeg * Mathf.Deg2Rad * 0.1f;
+        }
+        else
+        {
+            // 非对齐状态：正常响应智能体输出
+            outputVx = a_x * maxLateralSpeed;
+            outputOmega = a_w * maxOmegaDeg * Mathf.Deg2Rad;
+        }
+
+        // 保存本次输出（用于下一次观察）
+        // 注意：这里保存的是衰减后的实际控制量，而非神经网络的原始输出
+        // 如需保存原始输出，改为: lastOutputLateralSpeed = a_x * maxLateralSpeed;
+        lastOutputLateralSpeed = outputVx;
+        lastOutputAngularSpeed = outputOmega;
+
+        // 映射到真实控制量（vz固定）
+        float vz = constantForwardSpeed;  // 固定前进速度
+
+        // 下发给 MyCar_Motion 控制车辆
+        if (myCarMotion != null) myCarMotion.SetControl(vz, outputVx, outputOmega);
+
+        // ========== 终止条件1：脱轨检测（带时间判定） ==========
+        float frontCenter = sensorValues[1];  // 前中
+        float rearCenter = sensorValues[4];   // 后中
+        float derailThresholdValue = maxField * 0.3f;  // 30%最大磁场强度
+        
+        if (frontCenter < derailThresholdValue || rearCenter < derailThresholdValue)
+        {
+            derailTimer += Time.fixedDeltaTime;
+            if (derailTimer >= derailTimeThreshold)
+            {
+                AddReward(-5f);
+                Debug.Log($"Episode Ended: derailment for {derailTimer:F2}s. frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
+                EndEpisode();
+                return;
+            }
+        }
+        else
+        {
+            // 传感器恢复正常，重置脱轨计时器
+            derailTimer = 0f;
+        }
+
+        // ========== 计算奖励 ==========
+        float reward = CalculateReward(sensorValues, isAligned);
         AddReward(reward * Time.fixedDeltaTime);
 
         // ========== 终止条件2：超时 ==========
@@ -210,55 +281,81 @@ public class MyCarAgent : Agent
         }  
     }
 
-    float CalculateReward(float[] s)
+    // 判断是否处于对齐状态
+    bool CheckAlignmentState(float[] s)
     {
-        if (s == null || s.Length < 6) return 0f;
+        if (s == null || s.Length < 6) return false;
 
-        // ========== 对齐奖励：中心强度 × 对称性 ==========
+        // 前后两对左右传感器的差值
+        float frontDiff = Mathf.Abs(s[0] - s[2]);  // 前左 vs 前右
+        float rearDiff = Mathf.Abs(s[3] - s[5]);   // 后左 vs 后右
         
-        // 1. 中心强度因子：前中、后中传感器强度（判断是否在轨迹正上方）
-        float frontCenter = s[1];   // 前中
-        float rearCenter = s[4];    // 后中
-        float centerAvg = (frontCenter + rearCenter) * 0.5f;
-        float centerStrength = Mathf.Clamp01(centerAvg / Mathf.Max(1e-6f, maxField));
+        // 两个中心传感器的值
+        float frontCenter = s[1];  // 前中
+        float rearCenter = s[4];   // 后中
         
-        // 2. 对称性因子：前后左右对称性（判断车身姿态是否对齐）
-        // 前排对称：前左 vs 前右
-        float frontSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[0] - s[2]) / maxField);
-        // 后排对称：后左 vs 后右
-        float rearSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[3] - s[5]) / maxField);
-        // 只有前后都对称时才给高分（取最小值，确保整车对齐）
-        float symmetry = Mathf.Min(frontSymmetry, rearSymmetry);
+        // 判断条件：
+        // 1. 前后左右差值都小于最大磁场强度的15%
+        // 2. 两个中心传感器都大于最大磁场强度的65%
+        float diffThreshold = maxField * alignedThresholdPercent;
+        float centerThreshold = maxField * centerThresholdPercent;
         
-        // 综合对齐分数：既要在轨迹上方（中心强），又要姿态对齐（对称）
-        float alignment = centerStrength * symmetry;
+        bool leftRightAligned = (frontDiff < diffThreshold) && (rearDiff < diffThreshold);
+        bool centerStrong = (frontCenter > centerThreshold) && (rearCenter > centerThreshold);
+        
+        return leftRightAligned && centerStrong;
+    }
 
-        // ========== 前进速度因子：分段式速度奖励（转弯宽容） ==========
-        Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
-        float forwardSpeed = Vector3.Dot(vel, transform.forward);  // 实际前进速度
+    float CalculateReward(float[] s, bool isAligned)
+    {
+        if (s == null || s.Length < 6) return -1f;
+
+        // ========== 1. 计算基础对齐奖励 ==========
+        float alignmentReward;
         
-        float speedThreshold = constantForwardSpeed * 0.60f;  // 60%阈值
-        float speedRatio;
-        
-        if (forwardSpeed >= speedThreshold)
+        if (isAligned)
         {
-            // 速度足够（≥80%目标），给予全额奖励
-            speedRatio = 1.0f;
-        }
-        else if (forwardSpeed >= 0.05f)
-        {
-            // 速度介于10cm/s和60%阈值之间，线性衰减
-            speedRatio = forwardSpeed / speedThreshold;
+            // 对齐状态：给予全额奖励 + 额外奖励
+            alignmentReward = 1.0f + alignedBonus;
         }
         else
         {
-            // 几乎停止（<10cm/s），无奖励
-            speedRatio = 0f;
+            // 非对齐状态：按比例给予奖励（仅基于对称性）
+            // 计算对称性因子
+            float frontSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[0] - s[2]) / maxField);
+            float rearSymmetry = Mathf.Clamp01(1f - Mathf.Abs(s[3] - s[5]) / maxField);
+            float symmetry = Mathf.Min(frontSymmetry, rearSymmetry);
+            
+            // 综合对齐分数（0-1之间，仅依据对称性）
+            alignmentReward = symmetry;
+        }
+
+        // ========== 2. 计算前进速度比例系数 ==========
+        Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
+        float forwardSpeed = Vector3.Dot(vel, transform.forward);  // 实际前进速度
+        
+        float speedCoefficient;
+        float highSpeedThreshold = constantForwardSpeed * speedHighPercent;  // 60%阈值
+        float lowSpeedThreshold = constantForwardSpeed * speedLowPercent;    // 20%阈值
+        
+        if (forwardSpeed >= highSpeedThreshold)
+        {
+            // 速度 >= 60%预设速度：系数为1
+            speedCoefficient = 1.0f;
+        }
+        else if (forwardSpeed >= lowSpeedThreshold)
+        {
+            // 速度在20%-60%之间：比例减少（线性插值）
+            speedCoefficient = (forwardSpeed - lowSpeedThreshold) / (highSpeedThreshold - lowSpeedThreshold);
+        }
+        else
+        {
+            // 速度 < 20%预设速度：取消对齐奖励，直接给-1惩罚
+            return -1f;
         }
         
-        // 最终奖励 = 对齐分数 × 前进因子
-        // 转弯时只要保持≥60%目标速度，就不会损失奖励
-        return alignment * speedRatio;
+        // ========== 3. 最终奖励 = 对齐奖励 × 速度系数 ==========
+        return alignmentReward * speedCoefficient;
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
