@@ -2,21 +2,22 @@ behaviors:
   MagneticTrackingAgentCar_V1.0_Test_251231:
     trainer_type: ppo
     hyperparameters:
-      batch_size: 2048              # ↑ 从1024增加，观察和动作空间更复杂
-      buffer_size: 20480            # ↑ 从8192增加，episode更长(40s)需要更多经验
-      learning_rate: 2.0e-4         # ↓ 略微降低，策略空间增加需要更稳定的学习
-      beta: 5.0e-3                  # 保持
-      epsilon: 0.2                  # 保持
-      lambd: 0.95                   # 保持
-      num_epoch: 3                  # ↓ 从5降低，防止过拟合
+      batch_size: 2048
+      buffer_size: 20480
+      learning_rate: 2.0e-4
+      beta: 5.0e-3
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
     network_settings:
-      normalize: true               # 保持
-      hidden_units: 256             # ↑ 从128增加，11维观察+2维动作需要更大网络
-      num_layers: 3                 # ↑ 从2增加，任务复杂度提高
+      normalize: true
+      hidden_units: 256
+      num_layers: 3
     reward_signals:
       extrinsic:
-        gamma: 0.99                 # 保持，长期规划
-        strength: 1.0               # 保持
-    max_steps: 8.0e6                # ↑ 从5e6增加，更复杂任务需要更多训练
-    time_horizon: 512               # ↑ 从256增加，episode长(40s)需要更长视野
-    summary_freq: 10000             # 保持
+        gamma: 0.99
+        strength: 1.0
+    max_steps: 8.0e6
+    time_horizon: 512
+    summary_freq: 10000
+    

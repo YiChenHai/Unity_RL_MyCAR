@@ -162,6 +162,70 @@ public class MyCar_StateDisplay : MonoBehaviour
             
             GUILayout.Label($"前排差值(左-右): {frontDiff:F3} | 后排差值(左-右): {rearDiff:F3}", 
                 diffStyle, GUILayout.Width(displaySize.x - 20));
+            
+            // ========== 对齐状态检测 ==========
+            GUILayout.Space(5);
+            
+            if (myCarAgent != null)
+            {
+                // 直接从Agent读取对齐状态
+                bool isAligned = myCarAgent.IsAligned;
+                bool isStableAligned = myCarAgent.IsStableAligned;
+                
+                // 计算对齐判断的各项指标（仅用于显示）
+                float frontDiffAbs = Mathf.Abs(frontDiff);
+                float rearDiffAbs = Mathf.Abs(rearDiff);
+                float diffThreshold = myCarAgent.maxField * myCarAgent.alignedThresholdPercent;
+                float centerThreshold = myCarAgent.maxField * myCarAgent.centerThresholdPercent;
+                
+                bool leftRightAligned = (frontDiffAbs < diffThreshold) && (rearDiffAbs < diffThreshold);
+                bool centerStrong = (sensorValues[1] > centerThreshold) && (sensorValues[4] > centerThreshold);
+                
+                // 使用不同颜色显示对齐状态
+                GUIStyle alignmentStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 14,
+                    fontStyle = FontStyle.Bold
+                };
+                
+                string alignmentStatus;
+                string stableStatus = "";
+                
+                if (isStableAligned)
+                {
+                    // 稳定对齐状态（绿色）
+                    alignmentStyle.normal.textColor = Color.green;
+                    alignmentStatus = "✓ 对齐";
+                    stableStatus = " [稳定]";
+                }
+                else if (isAligned)
+                {
+                    // 对齐但未稳定（黄色）
+                    alignmentStyle.normal.textColor = Color.yellow;
+                    float progress = myCarAgent.AlignedTimer / myCarAgent.stableAlignedTime;
+                    alignmentStatus = "⊙ 对齐中";
+                    stableStatus = $" [确认中 {myCarAgent.AlignedTimer:F1}s / {myCarAgent.stableAlignedTime:F1}s ({progress*100:F0}%)]";
+                }
+                else
+                {
+                    // 未对齐（红色）
+                    alignmentStyle.normal.textColor = Color.red;
+                    alignmentStatus = "✗ 未对齐";
+                    stableStatus = " [不满足对齐标准]";
+                }
+                
+                GUILayout.Label($"对齐状态: {alignmentStatus}{stableStatus}", alignmentStyle, GUILayout.Width(displaySize.x - 20));
+                
+                // 显示详细判断条件
+                GUIStyle detailStyle = new GUIStyle(GUI.skin.label) { fontSize = 11 };
+                detailStyle.normal.textColor = leftRightAligned ? Color.green : Color.gray;
+                GUILayout.Label($"  左右对称: {(leftRightAligned ? "✓" : "✗")} (前={frontDiffAbs:F2}<{diffThreshold:F2}, 后={rearDiffAbs:F2}<{diffThreshold:F2})", 
+                    detailStyle, GUILayout.Width(displaySize.x - 20));
+                
+                detailStyle.normal.textColor = centerStrong ? Color.green : Color.gray;
+                GUILayout.Label($"  中心强度: {(centerStrong ? "✓" : "✗")} (前={sensorValues[1]:F2}>{centerThreshold:F2}, 后={sensorValues[4]:F2}>{centerThreshold:F2})", 
+                    detailStyle, GUILayout.Width(displaySize.x - 20));
+            }
         }
         else
         {

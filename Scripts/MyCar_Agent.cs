@@ -39,15 +39,20 @@ public class MyCarAgent : Agent
 
     [Header("Reward Params")]
     public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（15%）
-    public float centerThresholdPercent = 0.65f;   // 对齐状态：中心传感器阈值（65%）
+    public float centerThresholdPercent = 0.60f;   // 对齐状态：中心传感器阈值（60%）
     public float alignedBonus = 0.5f;              // 对齐状态的额外奖励
     public float speedHighPercent = 0.6f;          // 速度比例系数为1的阈值（60%）
     public float speedLowPercent = 0.2f;           // 速度惩罚阈值（20%）
 
     [Header("Stable Tracking")]
-    public float stableAlignedTime = 0.3f;     // 稳定对齐时间阈值（秒）
+    public float stableAlignedTime = 1.0f;     // 稳定对齐时间阈值（秒）
     private float alignedTimer = 0f;           // 对齐状态计时器
     private bool isStableAligned = false;      // 是否处于稳定对齐状态
+    
+    // 公开对齐状态供外部访问（如UI显示）
+    public bool IsAligned { get; private set; }          // 当前是否对齐
+    public bool IsStableAligned => isStableAligned;      // 当前是否稳定对齐
+    public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
     // 动作记忆（用于观察空间）
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
@@ -201,6 +206,7 @@ public class MyCarAgent : Agent
 
         // ========== 判断对齐状态 ==========
         bool isAligned = CheckAlignmentState(sensorValues);
+        IsAligned = isAligned;  // 更新公开属性
         
         // 更新对齐计时器
         if (isAligned)
@@ -249,7 +255,7 @@ public class MyCarAgent : Agent
         // ========== 终止条件1：脱轨检测（带时间判定） ==========
         float frontCenter = sensorValues[1];  // 前中
         float rearCenter = sensorValues[4];   // 后中
-        float derailThresholdValue = maxField * 0.3f;  // 30%最大磁场强度
+        float derailThresholdValue = maxField * 0.2f;  // 20%最大磁场强度
         
         if (frontCenter < derailThresholdValue || rearCenter < derailThresholdValue)
         {
