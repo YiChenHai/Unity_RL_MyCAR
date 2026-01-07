@@ -79,10 +79,10 @@ public class MyCarAgent : Agent
     private const float DefaultConstantForwardSpeed = 0.2f;
 	
     // 最大横向速度 vx（m/s）。当 preferInspectorValues=false 时，会写入 maxLateralSpeed。
-    private const float DefaultMaxLateralSpeed = 0.1f;
+    private const float DefaultMaxLateralSpeed = 0.2f;
 	
     // 最大自转角速度上限（deg/s）。当 preferInspectorValues=false 时，会写入 maxOmegaDeg。
-    private const float DefaultMaxOmegaDeg = 120f;
+    private const float DefaultMaxOmegaDeg = 45;
 	
     // 磁场强度归一化的分母（maxField）。观测中使用 mag.magnitude/maxField 归一化。
     private const float DefaultMaxField = 8f;
