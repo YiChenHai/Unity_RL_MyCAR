@@ -38,7 +38,7 @@ public class MyCarAgent : Agent
     private float derailTimer = 0f;           // 脱轨计时器
 
     [Header("Reward Params")]
-    public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（15%）
+    public float alignedThresholdPercent = 0.10f;  // 对齐状态：左右差值阈值（10%）
     public float centerThresholdPercent = 0.60f;   // 对齐状态：中心传感器阈值（60%）
     public float alignedBonus = 0.5f;              // 对齐状态的额外奖励
     public float speedHighPercent = 0.6f;          // 速度比例系数为1的阈值（60%）

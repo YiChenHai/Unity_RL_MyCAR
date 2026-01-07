@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: ed17b63b6b9f5a94ba43d72ae55a14da, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 56f7813f6250c5f49a7802ff0dd9c083, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -483,11 +483,11 @@ MonoBehaviour:
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.2
-  maxOmegaDeg: 45
+  maxOmegaDeg: 80
   maxField: 8
   maxEpisodeTime: 40
   derailTimeThreshold: 0.5
-  alignedThresholdPercent: 0.15
+  alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.6
   alignedBonus: 0.5
   speedHighPercent: 0.6
