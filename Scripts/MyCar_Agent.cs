@@ -41,6 +41,11 @@ public class MyCarAgent : Agent
     public float speedLowPercent = 0.10f;          // 速度惩罚阈值（10%，放宽以允许转弯减速）
     public float speedPenalty = -0.2f;             // 速度过低时的惩罚值（-0.5→-0.2，缓和）
     public float smallOutputBonus = 0.5f;          // 小输出奖励系数（原0.3，增加引导力度）
+    public float turningBonus = 0.5f;              // 转弯鼓励奖励幅度（0.2→0.5，加强转弯激励）
+    public float turningThreshold = 0.5f;         // 触发转弯奖励的角速度阈值
+
+    [Header("Debug")]
+    public bool enableDebugLog = false;  // 调试日志开关
 
     [Header("Stable Tracking")]
     public float stableAlignedTime = 1.0f;     // 稳定对齐时间阈值（秒）
@@ -248,7 +253,10 @@ public class MyCarAgent : Agent
         {
             // 中心传感器低于20% → 立即脱轨，无时间缓冲
             AddReward(-5f);
-            Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
+            if (enableDebugLog)
+            {
+                Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
+            }
             EndEpisode();
             return;
         }
@@ -261,7 +269,10 @@ public class MyCarAgent : Agent
         episodeTimer += Time.fixedDeltaTime;
         if (episodeTimer >= maxEpisodeTime)
         {
-            Debug.Log($"Episode Ended: timeout. episodeTimer={episodeTimer:F2}s");
+            if (enableDebugLog)
+            {
+                Debug.Log($"Episode Ended: timeout. episodeTimer={episodeTimer:F2}s");
+            }
             EndEpisode();
         }  
     }
@@ -354,9 +365,21 @@ public class MyCarAgent : Agent
             // 动作越小，奖励越高（鼓励平稳跟随）
             outputBonus = (1f - actionMagnitude) * smallOutputBonus;
         }
+
+        // ========== 4. 转弯鼓励奖励（仅在非对齐状态，即转弯时启用） ==========
+        float turningReward = 0f;
+        if (!isAligned)  // 只在非对齐模式（转弯阶段）启用
+        {
+            float angularMagnitude = Mathf.Abs(a_w);  // 角速度幅度 (0-1)
+            if (angularMagnitude > turningThreshold)  // 使用参数化阈值（默认0.15）
+            {
+                // 转弯幅度越大，奖励越多，但不超过 turningBonus
+                turningReward = Mathf.Min(angularMagnitude * turningBonus, turningBonus);
+            }
+        }
         
-        // ========== 4. 最终奖励 = 对齐奖励 × 速度系数 + 稳定对齐的小输出奖励 ==========
-        return alignmentReward * speedCoefficient + outputBonus;
+        // ========== 5. 最终奖励 = 对齐奖励 × 速度系数 + 稳定对齐的小输出奖励 + 转弯奖励 ==========
+        return alignmentReward * speedCoefficient + outputBonus + turningReward;
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
