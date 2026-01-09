@@ -308,7 +308,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0, y: 0.156, z: 1}
+  m_LocalPosition: {x: -0, y: 0.156, z: 1.697}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -397,7 +397,7 @@ MonoBehaviour:
   maxSteerRateDeg: 180
   steerDeadbandDeg: 0.2
   forceWheelZto90: 1
-  enableDebugLog: 1
+  enableDebugLog: 0
   steerAngles:
   - 0
   - 0
@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: c849abfabc814854d8dad876c63e89f0, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: e869506ec00e4344d953c56711cc276c, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -493,6 +493,9 @@ MonoBehaviour:
   speedLowPercent: 0.2
   speedPenalty: -0.2
   smallOutputBonus: 0.5
+  turningBonus: 0.5
+  turningThreshold: 0.5
+  enableDebugLog: 0
   stableAlignedTime: 0.3
   startPos: {x: 0, y: 0.15, z: 1}
   startRot: {x: 0, y: 0, z: 0, w: 0}

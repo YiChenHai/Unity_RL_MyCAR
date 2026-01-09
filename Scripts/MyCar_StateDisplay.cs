@@ -15,10 +15,21 @@ public class MyCar_StateDisplay : MonoBehaviour
 
     [Header("Display Settings")]
     public bool showDebugInfo = true;
+    public bool showOutputCurves = true;  // 显示输出曲线开关
     public Vector2 displayPosition = new Vector2(10, 10);
     public Vector2 displaySize = new Vector2(500, 550);
+    
+    [Header("Curve Display Settings")]
+    public int curveHistoryLength = 200;  // 曲线历史数据点数
+    public Vector2 curveAreaPosition = new Vector2(520, 10);
+    public Vector2 curveAreaSize = new Vector2(400, 250);
 
     private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
+    
+    // 曲线数据缓冲区
+    private float[] _lateralSpeedHistory;
+    private float[] _angularSpeedHistory;
+    private int _historyIndex = 0;
 
     void Start()
     {
@@ -31,6 +42,10 @@ public class MyCar_StateDisplay : MonoBehaviour
         
         if (rb == null)
             rb = GetComponent<Rigidbody>();
+        
+        // 初始化曲线缓冲区
+        _lateralSpeedHistory = new float[curveHistoryLength];
+        _angularSpeedHistory = new float[curveHistoryLength];
     }
 
     void OnGUI()
@@ -54,6 +69,18 @@ public class MyCar_StateDisplay : MonoBehaviour
             _bgTexture.Apply();
         }
         GUI.DrawTexture(new Rect(displayPosition.x, displayPosition.y, displaySize.x, displaySize.y), _bgTexture);
+
+        // 记录当前输出到历史缓冲区
+        if (myCarAgent != null)
+        {
+            _lateralSpeedHistory[_historyIndex] = myCarAgent.maxLateralSpeed > 0 
+                ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
+                : 0f;
+            _angularSpeedHistory[_historyIndex] = myCarAgent.maxOmegaDeg > 0 
+                ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
+                : 0f;
+            _historyIndex = (_historyIndex + 1) % curveHistoryLength;
+        }
 
         GUILayout.BeginArea(new Rect(displayPosition.x, displayPosition.y, displaySize.x, displaySize.y));
         GUILayout.Box("Vehicle & Wheel Info", GUILayout.Width(displaySize.x - 20));
@@ -233,6 +260,171 @@ public class MyCar_StateDisplay : MonoBehaviour
         }
 
         GUILayout.EndArea();
+
+        // ========== 绘制输出曲线 ==========
+        if (showOutputCurves && myCarAgent != null)
+        {
+            DrawOutputCurves();
+        }
+    }
+
+    /// <summary>
+    /// 绘制智能体输出的横向速度和角速度曲线
+    /// </summary>
+    void DrawOutputCurves()
+    {
+        Rect curveRect = new Rect(curveAreaPosition.x, curveAreaPosition.y, curveAreaSize.x, curveAreaSize.y);
+        
+        // 绘制背景
+        GUI.DrawTexture(curveRect, _bgTexture);
+        
+        // 绘制边框
+        GUI.Box(curveRect, "Agent Output Curves");
+        
+        // 内部绘制区域（留出边距）
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, curveRect.height - 35);
+        
+        // 绘制网格和曲线
+        DrawCurveGraph(innerRect);
+    }
+
+    void DrawCurveGraph(Rect graphRect)
+    {
+        // 获取当前值（正规化到 -1 ~ 1）
+        float currentLateralNorm = myCarAgent.maxLateralSpeed > 0 
+            ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
+            : 0f;
+        float currentAngularNorm = myCarAgent.maxOmegaDeg > 0 
+            ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
+            : 0f;
+        
+        // 绘制坐标轴和网格
+        DrawGraphGrid(graphRect);
+        
+        // 绘制两条曲线（需要先clamp值）
+        DrawCurveLineWithColor(graphRect, _lateralSpeedHistory, Color.cyan, "Lateral Vx");
+        DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta, "Angular ω");
+        
+        // 绘制当前值标签
+        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white }
+        };
+        
+        float labelX = graphRect.x + 10;
+        float labelY = graphRect.y - 20;
+        
+        GUILayout.BeginArea(new Rect(labelX, labelY, 200, 30));
+        GUILayout.Label($"Vx: {currentLateralNorm:F2} | ω: {currentAngularNorm:F2}", labelStyle);
+        GUILayout.EndArea();
+    }
+
+    void DrawGraphGrid(Rect graphRect)
+    {
+        // 绘制Y轴刻度和标签
+        DrawYAxisLabels(graphRect);
+        
+        // 绘制中心线（0值）
+        DrawLine(new Vector2(graphRect.x, graphRect.center.y), new Vector2(graphRect.xMax, graphRect.center.y), Color.gray);
+        
+        // 绘制 ±1 线
+        float topY = graphRect.y + graphRect.height * 0.1f;  // +1
+        float bottomY = graphRect.yMax - graphRect.height * 0.1f;  // -1
+        Color gridColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+        DrawLine(new Vector2(graphRect.x, topY), new Vector2(graphRect.xMax, topY), gridColor);
+        DrawLine(new Vector2(graphRect.x, bottomY), new Vector2(graphRect.xMax, bottomY), gridColor);
+        
+        // 绘制 ±0.5 虚线
+        float midTopY = graphRect.center.y - graphRect.height * 0.25f;  // +0.5
+        float midBottomY = graphRect.center.y + graphRect.height * 0.25f;  // -0.5
+        Color faintGridColor = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+        DrawLine(new Vector2(graphRect.x, midTopY), new Vector2(graphRect.xMax, midTopY), faintGridColor);
+        DrawLine(new Vector2(graphRect.x, midBottomY), new Vector2(graphRect.xMax, midBottomY), faintGridColor);
+    }
+    
+    void DrawYAxisLabels(Rect graphRect)
+    {
+        // Y轴刻度值
+        float[] values = { 1f, 0.5f, 0f, -0.5f, -1f };
+        
+        GUIStyle scaleStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray },
+            alignment = TextAnchor.MiddleRight
+        };
+        
+        foreach (float val in values)
+        {
+            // 计算Y坐标：val = 1 在上面，val = -1 在下面
+            float screenY = graphRect.center.y - val * (graphRect.height / 2);
+            screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
+            
+            // 绘制标签（在图表左侧外部）
+            Rect labelRect = new Rect(graphRect.x - 40, screenY - 10, 35, 20);
+            GUI.Label(labelRect, val.ToString("F1"), scaleStyle);
+        }
+    }
+
+    void DrawCurveLineWithColor(Rect graphRect, float[] data, Color color, string label)
+    {
+        if (data == null || data.Length < 2) return;
+        
+        for (int i = 0; i < data.Length - 1; i++)
+        {
+            // 计算实际的数组索引（考虑环形缓冲）
+            int idx1 = (_historyIndex + i) % data.Length;
+            int idx2 = (_historyIndex + i + 1) % data.Length;
+            
+            // 将值 [-1, 1] 映射到屏幕坐标（严格clamp）
+            float value1 = Mathf.Clamp(data[idx1], -1f, 1f);
+            float value2 = Mathf.Clamp(data[idx2], -1f, 1f);
+            
+            float screenX1 = graphRect.x + (i / (float)(data.Length - 1)) * graphRect.width;
+            float screenX2 = graphRect.x + ((i + 1) / (float)(data.Length - 1)) * graphRect.width;
+            
+            // 反转Y轴：上 = +1，下 = -1
+            // 计算方式：graphRect.center.y 是 0 点，向上正，向下负
+            float screenY1 = graphRect.center.y - value1 * (graphRect.height / 2);
+            float screenY2 = graphRect.center.y - value2 * (graphRect.height / 2);
+            
+            // 二次clamp确保在范围内（不应该超过）
+            screenY1 = Mathf.Clamp(screenY1, graphRect.y, graphRect.yMax);
+            screenY2 = Mathf.Clamp(screenY2, graphRect.y, graphRect.yMax);
+            
+            DrawLine(new Vector2(screenX1, screenY1), new Vector2(screenX2, screenY2), color);
+        }
+    }
+    
+    /// <summary>
+    /// 使用 GL 绘制直线（运行时用）
+    /// </summary>
+    void DrawLine(Vector2 start, Vector2 end, Color color)
+    {
+        GL.PushMatrix();
+        GL.LoadOrtho();
+        
+        // 将屏幕坐标转换为 GL 坐标 (0-1)
+        start.x /= Screen.width;
+        start.y /= Screen.height;
+        end.x /= Screen.width;
+        end.y /= Screen.height;
+        
+        // Y 轴反向（屏幕坐标 Y 向下，GL 坐标 Y 向上）
+        start.y = 1f - start.y;
+        end.y = 1f - end.y;
+        
+        var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
+        mat.SetPass(0);
+        
+        GL.Begin(GL.LINES);
+        GL.Color(color);
+        GL.Vertex(start);
+        GL.Vertex(end);
+        GL.End();
+        
+        GL.PopMatrix();
     }
 
     private void OnDestroy()
