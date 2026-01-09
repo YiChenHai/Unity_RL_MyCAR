@@ -40,9 +40,10 @@ public class MyCarAgent : Agent
     public float speedHighPercent = 0.45f;         // 速度比例系数为1的阈值（45%）
     public float speedLowPercent = 0.10f;          // 速度惩罚阈值（10%，放宽以允许转弯减速）
     public float speedPenalty = -0.2f;             // 速度过低时的惩罚值（-0.5→-0.2，缓和）
-    public float smallOutputBonus = 0.5f;          // 小输出奖励系数（原0.3，增加引导力度）
+    public float smallOutputBonus = 2.0f;          // 小输出奖励系数（0.5→2.0，大幅提升稳定激励）
     public float turningBonus = 0.5f;              // 转弯鼓励奖励幅度（0.2→0.5，加强转弯激励）
-    public float turningThreshold = 0.5f;         // 触发转弯奖励的角速度阈值
+    public float turningThreshold = 0.5f;          // 触发转弯奖励的角速度阈值
+    public float smoothnessBonus = 1.0f;           // 输出平稳性奖励幅度（新增，鼓励连续性）
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -60,6 +61,8 @@ public class MyCarAgent : Agent
     // 动作记忆（用于观察空间）
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
+    private float prevLateralSpeed = 0f;        // 前一帧的横向速度（用于平稳性计算）
+    private float prevAngularSpeed = 0f;        // 前一帧的角速度（用于平稳性计算）
 
     [Header("Start pose")]
     public Vector3 startPos = new Vector3(0f, 0.15f, 1f);
@@ -160,6 +163,8 @@ public class MyCarAgent : Agent
         isStableAligned = false;
         lastOutputLateralSpeed = 0f;
         lastOutputAngularSpeed = 0f;
+        prevLateralSpeed = 0f;
+        prevAngularSpeed = 0f;
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -243,6 +248,10 @@ public class MyCarAgent : Agent
 
         // 下发给 MyCar_Motion 控制车辆
         if (myCarMotion != null) myCarMotion.SetControl(vz, outputVx, outputOmega);
+        
+        // 更新前一帧数据（用于计算平稳性）
+        prevLateralSpeed = outputVx;
+        prevAngularSpeed = outputOmega;
 
         // ========== 终止条件1：脱轨检测（立即判定） ==========
         float frontCenter = sensorValues[1];  // 前中
@@ -358,12 +367,22 @@ public class MyCarAgent : Agent
         
         // ========== 3. 稳定对齐状态下的小输出奖励 ==========
         float outputBonus = 0f;
+        float smoothnessReward = 0f;
         if (isStableAligned)
         {
             // 计算动作幅度（0-1范围）
             float actionMagnitude = Mathf.Sqrt(a_x * a_x + a_w * a_w) / Mathf.Sqrt(2f);
             // 动作越小，奖励越高（鼓励平稳跟随）
             outputBonus = (1f - actionMagnitude) * smallOutputBonus;
+            
+            // 计算输出平稳性奖励：奖励输出变化小的情况
+            // 计算与上一帧的差异
+            float lateralDelta = Mathf.Abs(prevLateralSpeed - a_x * maxLateralSpeed) / Mathf.Max(0.001f, maxLateralSpeed);
+            float angularDelta = Mathf.Abs(prevAngularSpeed - a_w * maxOmegaDeg * Mathf.Deg2Rad) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
+            
+            // 平稳性指标：变化越小越好（指数衰减）
+            float smoothness = Mathf.Exp(-(lateralDelta + angularDelta));
+            smoothnessReward = (smoothness - 0.5f) * smoothnessBonus;  // 中立点在0.5，避免总是奖励
         }
 
         // ========== 4. 转弯鼓励奖励（仅在非对齐状态，即转弯时启用） ==========
@@ -378,8 +397,8 @@ public class MyCarAgent : Agent
             }
         }
         
-        // ========== 5. 最终奖励 = 对齐奖励 × 速度系数 + 稳定对齐的小输出奖励 + 转弯奖励 ==========
-        return alignmentReward * speedCoefficient + outputBonus + turningReward;
+        // ========== 5. 最终奖励 = 对齐奖励 × 速度系数 + 稳定对齐的小输出奖励 + 平稳性奖励 + 转弯奖励 ==========
+        return alignmentReward * speedCoefficient + outputBonus + smoothnessReward + turningReward;
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
