@@ -34,16 +34,16 @@ public class MyCarAgent : Agent
     private float episodeTimer = 0f;
 
     [Header("Reward Params")]
-    public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（18%，放宽）
-    public float centerThresholdPercent = 0.45f;   // 对齐状态：中心传感器阈值（40%，大幅放宽支持转弯）
+    public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（15%，放宽）
+    public float centerThresholdPercent = 0.45f;   // 对齐状态：中心传感器阈值（45%，放宽支持转弯）
     public float alignedBonus = 0.5f;              // 对齐状态的额外奖励
     public float speedHighPercent = 0.45f;         // 速度比例系数为1的阈值（45%）
     public float speedLowPercent = 0.10f;          // 速度惩罚阈值（10%，放宽以允许转弯减速）
     public float speedPenalty = -0.2f;             // 速度过低时的惩罚值（-0.5→-0.2，缓和）
-    public float smallOutputBonus = 2.0f;          // 小输出奖励系数（0.5→2.0，大幅提升稳定激励）
-    public float turningBonus = 0.5f;              // 转弯鼓励奖励幅度（0.2→0.5，加强转弯激励）
-    public float turningThreshold = 0.5f;          // 触发转弯奖励的角速度阈值
-    public float smoothnessBonus = 1.0f;           // 输出平稳性奖励幅度（新增，鼓励连续性）
+    public float smallOutputBonus = 1.0f;          // 小输出奖励系数（稳定对齐时的精细控制激励）
+    public float turningBonus = 0.3f;              // 转弯鼓励奖励幅度（避免过度激励）
+    public float turningThreshold = 0.3f;          // 触发转弯奖励的角速度阈值（0.3，容易触发）
+    public float smoothnessBonus = 2.0f;           // 输出平稳性奖励幅度（新增，鼓励连续性）
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -63,6 +63,14 @@ public class MyCarAgent : Agent
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
     private float prevLateralSpeed = 0f;        // 前一帧的横向速度（用于平稳性计算）
     private float prevAngularSpeed = 0f;        // 前一帧的角速度（用于平稳性计算）
+    private float lastRawLateralAction = 0f;    // 上一帧的原始神经网络输出（横向速度比例）
+    private float lastRawAngularAction = 0f;    // 上一帧的原始神经网络输出（角速度比例）
+    
+    [Header("Output Smoothing")]
+    [Range(0f, 1f)]
+    public float smoothingAlpha = 0.3f;  // 指数平滑系数（0=完全平滑，1=无平滑）。建议0.2-0.4
+    private float smoothedLateralSpeed = 0f;   // 平滑后的横向速度
+    private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
 
     [Header("Start pose")]
     public Vector3 startPos = new Vector3(0f, 0.15f, 1f);
@@ -165,6 +173,10 @@ public class MyCarAgent : Agent
         lastOutputAngularSpeed = 0f;
         prevLateralSpeed = 0f;
         prevAngularSpeed = 0f;
+        smoothedLateralSpeed = 0f;  // 初始化平滑缓冲
+        smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
+        lastRawLateralAction = 0f;  // 初始化原始动作
+        lastRawAngularAction = 0f;  // 初始化原始动作
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -180,18 +192,22 @@ public class MyCarAgent : Agent
             else sensor.AddObservation(0f);
         }
 
-        // 7-8: 智能体上一次输出的横向速度和自转速度（决策记忆）
-        sensor.AddObservation(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));  // 7: 输出横向速度
+        // 7-8: 智能体上一次输出的平滑后的横向速度和自转速度（决策记忆）
+        sensor.AddObservation(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));  // 7: 平滑输出横向速度
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        sensor.AddObservation(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));                          // 8: 输出自转速度
+        sensor.AddObservation(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));                          // 8: 平滑输出自转速度
 
-        // 9-11: 车身实际运动状态（物理反馈）
+        // 9-10: 原始神经网络输出动作（用于感知平滑延迟）
+        sensor.AddObservation(Mathf.Clamp(lastRawLateralAction, -1f, 1f));   // 9: 原始横向动作
+        sensor.AddObservation(Mathf.Clamp(lastRawAngularAction, -1f, 1f));   // 10: 原始角速度动作
+
+        // 11-13: 车身实际运动状态（物理反馈）
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
         
-        sensor.AddObservation(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 9: 实际前进速度
-        sensor.AddObservation(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 10: 实际横向速度
-        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 11: 实际角速度
+        sensor.AddObservation(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 11: 实际前进速度
+        sensor.AddObservation(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 12: 实际横向速度
+        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 13: 实际角速度
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -199,6 +215,19 @@ public class MyCarAgent : Agent
         // 连续动作：0=横向速度比例，1=自转速度比例
         float a_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
         float a_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+
+        // 保存原始动作用于下一帧观察（供平滑延迟感知）
+        lastRawLateralAction = a_x;
+        lastRawAngularAction = a_w;
+
+        // ========== 应用指数平滑滤波减少震荡 ==========
+        // 指数平滑：smoothed = α·raw + (1-α)·smoothed_prev
+        // α 越小越平滑（但响应延迟增加），建议 0.2-0.4
+        float rawLateralSpeed = a_x * maxLateralSpeed;
+        float rawAngularSpeed = a_w * maxOmegaDeg * Mathf.Deg2Rad;
+        
+        smoothedLateralSpeed = Mathf.Lerp(smoothedLateralSpeed, rawLateralSpeed, smoothingAlpha);
+        smoothedAngularSpeed = Mathf.Lerp(smoothedAngularSpeed, rawAngularSpeed, smoothingAlpha);
 
         // 读取传感器数据
         float[] sensorValues = new float[6];
@@ -231,15 +260,11 @@ public class MyCarAgent : Agent
         }
 
         // ========== 动作输出处理 ==========
-        float outputVx, outputOmega;
-        
-        // 正常响应智能体输出（移除衰减，改为奖励引导）
-        outputVx = a_x * maxLateralSpeed;
-        outputOmega = a_w * maxOmegaDeg * Mathf.Deg2Rad;
+        // 使用平滑后的输出
+        float outputVx = smoothedLateralSpeed;
+        float outputOmega = smoothedAngularSpeed;
 
         // 保存本次输出（用于下一次观察）
-        // 注意：这里保存的是衰减后的实际控制量，而非神经网络的原始输出
-        // 如需保存原始输出，改为: lastOutputLateralSpeed = a_x * maxLateralSpeed;
         lastOutputLateralSpeed = outputVx;
         lastOutputAngularSpeed = outputOmega;
 
@@ -271,7 +296,7 @@ public class MyCarAgent : Agent
         }
 
         // ========== 计算奖励 ==========
-        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_x, a_w);
+        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_x, a_w, outputVx, outputOmega);
         AddReward(reward * Time.fixedDeltaTime);
 
         // ========== 终止条件2：超时 ==========
@@ -311,7 +336,7 @@ public class MyCarAgent : Agent
         return leftRightAligned && centerStrong;
     }
 
-    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, float a_x, float a_w)
+    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, float a_x, float a_w, float outputVx, float outputOmega)
     {
         if (s == null || s.Length < 6) return -1f;
 
@@ -346,59 +371,68 @@ public class MyCarAgent : Agent
         float forwardSpeed = Vector3.Dot(vel, transform.forward);  // 实际前进速度
         
         float speedCoefficient;
-        float highSpeedThreshold = constantForwardSpeed * speedHighPercent;  // 50%阈值
-        float lowSpeedThreshold = constantForwardSpeed * speedLowPercent;    // 15%阈值
+        float highSpeedThreshold = constantForwardSpeed * speedHighPercent;  // 45%阈值
+        float lowSpeedThreshold = constantForwardSpeed * speedLowPercent;    // 10%阈值
         
         if (forwardSpeed >= highSpeedThreshold)
         {
-            // 速度 >= 50%预设速度：系数为1
+            // 速度 >= 45%预设速度：系数为1
             speedCoefficient = 1.0f;
         }
         else if (forwardSpeed >= lowSpeedThreshold)
         {
-            // 速度在15%-50%之间：比例减少（线性插值）
+            // 速度在10%-45%之间：比例减少（线性插值）
             speedCoefficient = (forwardSpeed - lowSpeedThreshold) / (highSpeedThreshold - lowSpeedThreshold);
         }
         else
         {
             // 速度 < 15%预设速度：轻度惩罚而非直接-1（允许转弯减速）
-            return speedPenalty;
+            return -1.0f;
         }
         
-        // ========== 3. 稳定对齐状态下的小输出奖励 ==========
+        // ========== 3. 平稳性奖励（扩展到所有状态，不仅仅对齐状态） ==========
+        // 计算输出平稳性：奖励变化小的输出，抑制频繁的方向改变
+        float lateralDelta = Mathf.Abs(prevLateralSpeed - outputVx) / Mathf.Max(0.001f, maxLateralSpeed);
+        float angularDelta = Mathf.Abs(prevAngularSpeed - outputOmega) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
+        
+        // 平稳性指标：变化越小越好（指数衰减）
+        // 目标：完全不变时为1，大幅变化时为0.1-0.3
+        float smoothness = Mathf.Exp(-(lateralDelta + angularDelta) * 2f);  // *2f 使衰减更陡峭
+        
+        // 奖励平稳输出，但要确保有正数项基准
+        // 当 smoothness=1（完全平稳）时：reward = 1.0
+        // 当 smoothness=0.37（e^-1）时：reward ≈ 0
+        float smoothnessReward = (smoothness - 0.37f) * smoothnessBonus;  // 中立点在 e^-1 ≈ 0.37
+        
+        // ========== 4. 稳定对齐状态下的小输出奖励 ==========
         float outputBonus = 0f;
-        float smoothnessReward = 0f;
         if (isStableAligned)
         {
             // 计算动作幅度（0-1范围）
             float actionMagnitude = Mathf.Sqrt(a_x * a_x + a_w * a_w) / Mathf.Sqrt(2f);
             // 动作越小，奖励越高（鼓励平稳跟随）
             outputBonus = (1f - actionMagnitude) * smallOutputBonus;
-            
-            // 计算输出平稳性奖励：奖励输出变化小的情况
-            // 计算与上一帧的差异
-            float lateralDelta = Mathf.Abs(prevLateralSpeed - a_x * maxLateralSpeed) / Mathf.Max(0.001f, maxLateralSpeed);
-            float angularDelta = Mathf.Abs(prevAngularSpeed - a_w * maxOmegaDeg * Mathf.Deg2Rad) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
-            
-            // 平稳性指标：变化越小越好（指数衰减）
-            float smoothness = Mathf.Exp(-(lateralDelta + angularDelta));
-            smoothnessReward = (smoothness - 0.5f) * smoothnessBonus;  // 中立点在0.5，避免总是奖励
         }
 
-        // ========== 4. 转弯鼓励奖励（仅在非对齐状态，即转弯时启用） ==========
+        // ========== 5. 转弯鼓励奖励：在转弯时（非对齐状态）奖励坚持转弯 ==========
         float turningReward = 0f;
         if (!isAligned)  // 只在非对齐模式（转弯阶段）启用
         {
             float angularMagnitude = Mathf.Abs(a_w);  // 角速度幅度 (0-1)
-            if (angularMagnitude > turningThreshold)  // 使用参数化阈值（默认0.15）
+            if (angularMagnitude > turningThreshold)  // 使用参数化阈值（默认0.5）
             {
                 // 转弯幅度越大，奖励越多，但不超过 turningBonus
+                // 目的：鼓励智能体坚持转弯而不是频繁改变方向
                 turningReward = Mathf.Min(angularMagnitude * turningBonus, turningBonus);
             }
         }
         
-        // ========== 5. 最终奖励 = 对齐奖励 × 速度系数 + 稳定对齐的小输出奖励 + 平稳性奖励 + 转弯奖励 ==========
-        return alignmentReward * speedCoefficient + outputBonus + smoothnessReward + turningReward;
+        // ========== 6. 最终奖励 ==========
+        // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
+        // + 平稳性奖励：鼓励稳定输出，抑制频繁震荡
+        // + 小输出奖励：稳定对齐时鼓励精细控制
+        // + 转弯奖励：转弯时鼓励坚持而不是改变
+        return alignmentReward * speedCoefficient + smoothnessReward + outputBonus + turningReward;
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)

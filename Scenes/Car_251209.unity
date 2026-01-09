@@ -421,7 +421,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 11
+    VectorObservationSize: 13
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: e869506ec00e4344d953c56711cc276c, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 588b17227d3b6c9428fb78ae2c41c6a6, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -495,8 +495,10 @@ MonoBehaviour:
   smallOutputBonus: 0.5
   turningBonus: 0.5
   turningThreshold: 0.5
+  smoothnessBonus: 1
   enableDebugLog: 0
   stableAlignedTime: 0.3
+  smoothingAlpha: 0.3
   startPos: {x: 0, y: 0.15, z: 1}
   startRot: {x: 0, y: 0, z: 0, w: 0}
 --- !u!114 &714007409
@@ -523,8 +525,12 @@ MonoBehaviour:
   - {fileID: 1550834400}
   - {fileID: 1240964160}
   showDebugInfo: 1
+  showOutputCurves: 0
   displayPosition: {x: 10, y: 10}
   displaySize: {x: 480, y: 550}
+  curveHistoryLength: 200
+  curveAreaPosition: {x: 520, y: 10}
+  curveAreaSize: {x: 400, y: 250}
 --- !u!1 &751401902
 GameObject:
   m_ObjectHideFlags: 0
