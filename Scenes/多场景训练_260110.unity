@@ -308,7 +308,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.17, y: 0.156, z: -0.02}
+  m_LocalPosition: {x: 0, y: 0.156, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -485,7 +485,7 @@ MonoBehaviour:
   maxLateralSpeed: 0.2
   maxOmegaDeg: 80
   maxField: 8
-  maxEpisodeTime: 50
+  maxEpisodeTime: 70
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.6
   alignedBonus: 0.5
@@ -503,15 +503,13 @@ MonoBehaviour:
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0.06975647, z: 0, w: 0.9975641}
   spawnPositions:
-  - {x: -2, y: 0.15, z: 4}
-  - {x: -2, y: 0.15, z: 4}
-  - {x: 0, y: 0.15, z: -1}
-  - {x: -0.5, y: 0.15, z: 3}
+  - {x: 0, y: 0.15, z: 1}
+  - {x: 1, y: 0.15, z: 10}
+  - {x: 4, y: 0.15, z: 0}
   spawnYawAngles:
   - 0
-  - -180
-  - -180
   - 90
+  - -90
   randomYawRange: 8
 --- !u!114 &714007409
 MonoBehaviour:
@@ -1427,26 +1425,53 @@ LineRenderer:
   - {x: 0, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 1}
   - {x: 0, y: 0.04, z: 2}
-  - {x: 0, y: 0.04, z: 3}
-  - {x: -1, y: 0.04, z: 3}
-  - {x: -2, y: 0.04, z: 3}
-  - {x: -2, y: 0.04, z: 4}
-  - {x: -2, y: 0.04, z: 5}
-  - {x: -3, y: 0.04, z: 5}
-  - {x: -4, y: 0.04, z: 5}
-  - {x: -5, y: 0.04, z: 5}
-  - {x: -5, y: 0.04, z: 4}
-  - {x: -5, y: 0.04, z: 3}
-  - {x: -5, y: 0.04, z: 2}
-  - {x: -5, y: 0.04, z: 1}
-  - {x: -5, y: 0.04, z: 0}
-  - {x: -5, y: 0.04, z: -1}
-  - {x: -4, y: 0.04, z: -2}
-  - {x: -3, y: 0.04, z: -2}
-  - {x: -2, y: 0.04, z: -2}
-  - {x: -1, y: 0.04, z: -2}
-  - {x: 0, y: 0.04, z: -2}
-  - {x: 0, y: 0.04, z: -1}
+  - {x: 1, y: 0.04, z: 2}
+  - {x: 2, y: 0.04, z: 2}
+  - {x: 2, y: 0.04, z: 3}
+  - {x: 2, y: 0.04, z: 4}
+  - {x: 1, y: 0.04, z: 4}
+  - {x: 0, y: 0.04, z: 4}
+  - {x: 0, y: 0.04, z: 5}
+  - {x: 0, y: 0.04, z: 6}
+  - {x: 1, y: 0.04, z: 6}
+  - {x: 2, y: 0.04, z: 6}
+  - {x: 2, y: 0.04, z: 7}
+  - {x: 2, y: 0.04, z: 8}
+  - {x: 1, y: 0.04, z: 8}
+  - {x: 0, y: 0.04, z: 8}
+  - {x: 0, y: 0.04, z: 9}
+  - {x: 0, y: 0.04, z: 10}
+  - {x: 1, y: 0.04, z: 10}
+  - {x: 2, y: 0.04, z: 10}
+  - {x: 3, y: 0.04, z: 10}
+  - {x: 4, y: 0.04, z: 10}
+  - {x: 5, y: 0.04, z: 10}
+  - {x: 5, y: 0.04, z: 11}
+  - {x: 6, y: 0.04, z: 11}
+  - {x: 6, y: 0.04, z: 10}
+  - {x: 7, y: 0.04, z: 10}
+  - {x: 7, y: 0.04, z: 11}
+  - {x: 8, y: 0.04, z: 11}
+  - {x: 8, y: 0.04, z: 10}
+  - {x: 9, y: 0.04, z: 10}
+  - {x: 10, y: 0.04, z: 10}
+  - {x: 10, y: 0.04, z: 9}
+  - {x: 9, y: 0.04, z: 8}
+  - {x: 9, y: 0.04, z: 7}
+  - {x: 9, y: 0.04, z: 6}
+  - {x: 8, y: 0.04, z: 5}
+  - {x: 8, y: 0.04, z: 4}
+  - {x: 8, y: 0.04, z: 3}
+  - {x: 8, y: 0.04, z: 2}
+  - {x: 8, y: 0.04, z: 1}
+  - {x: 8, y: 0.04, z: 0}
+  - {x: 7, y: 0.04, z: 0}
+  - {x: 6, y: 0.04, z: 0}
+  - {x: 5, y: 0.04, z: 0}
+  - {x: 4, y: 0.04, z: 0}
+  - {x: 3, y: 0.04, z: 0}
+  - {x: 2, y: 0.04, z: 0}
+  - {x: 1, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 0}
   m_Parameters:
     serializedVersion: 3
