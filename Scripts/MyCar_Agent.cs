@@ -43,7 +43,10 @@ public class MyCarAgent : Agent
     public float smallOutputBonus = 1.0f;          // 小输出奖励系数（稳定对齐时的精细控制激励）
     public float turningBonus = 0.3f;              // 转弯鼓励奖励幅度（避免过度激励）
     public float turningThreshold = 0.3f;          // 触发转弯奖励的角速度阈值（0.3，容易触发）
-    public float smoothnessBonus = 2.0f;           // 输出平稳性奖励幅度（新增，鼓励连续性）
+    public float smoothnessBonus = 2.0f;           // 输出平稳性奖励幅度（转弯时）
+    public float stableSmoothnessBonus = 4.0f;     // 稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）
+    [Range(0f, 5f)]
+    public float angularSmoothnessWeight = 2.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -73,8 +76,21 @@ public class MyCarAgent : Agent
     private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
 
     [Header("Start pose")]
-    public Vector3 startPos = new Vector3(0f, 0.15f, 1f);
     public Quaternion startRot = Quaternion.Euler(0f, 0f, 0f);
+    
+    [Header("Random Spawn")]
+    [Tooltip("出生点位置数组")]
+    public Vector3[] spawnPositions = new Vector3[] 
+    { 
+        new Vector3(0f, 0.15f, 1f)
+    };
+    [Tooltip("对应的Y旋转角度数组（与spawnPositions保持相同长度）")]
+    public float[] spawnYawAngles = new float[] 
+    { 
+        0f 
+    };
+    [Range(0f, 45f)]
+    public float randomYawRange = 8f;  // 随机Y角度范围（±度数，叠加在基础角度上）
 
     // ===== Script defaults (used when preferInspectorValues == false) =====
     // 说明：Unity会序列化(保存)Inspector中的字段值；因此“脚本里写的初始化默认值”
@@ -103,9 +119,6 @@ public class MyCarAgent : Agent
 	
     // 单回合最大时长（秒）。超过则判定超时结束回合。
     private const float DefaultMaxEpisodeTime = 40f;
-	
-    // 回合起始位置（世界坐标）。OnEpisodeBegin 时传送到该位置。
-    private static readonly Vector3 DefaultStartPos = new Vector3(0f, 0.15f, 1f);
 	
     // 回合起始朝向（欧拉角 0,0,0）。OnEpisodeBegin 时设置该旋转。
     // 这里用 default 做占位，ApplyScriptDefaults 内部会写成 Quaternion.Euler(0,0,0)。
@@ -147,7 +160,6 @@ public class MyCarAgent : Agent
         maxOmegaDeg = DefaultMaxOmegaDeg;
         maxField = DefaultMaxField;
         maxEpisodeTime = DefaultMaxEpisodeTime;
-        startPos = DefaultStartPos;
         startRot = DefaultStartRot == default ? Quaternion.Euler(0f, 0f, 0f) : DefaultStartRot;
 
         _applyingDefaults = false;
@@ -160,8 +172,24 @@ public class MyCarAgent : Agent
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
         }
-        transform.position = startPos;
-        transform.rotation = startRot;
+        
+        // ========== 从出生点数组中随机选择 ==========
+        int spawnIndex = Random.Range(0, Mathf.Max(1, spawnPositions.Length));
+        Vector3 selectedPosition = spawnPositions.Length > spawnIndex 
+            ? spawnPositions[spawnIndex]
+            : new Vector3(0f, 0.15f, 1f);
+        
+        float selectedYawAngle = (spawnYawAngles.Length > spawnIndex && spawnPositions.Length > 0)
+            ? spawnYawAngles[spawnIndex]
+            : 0f;
+        
+        transform.position = selectedPosition;
+        
+        // ========== 随机Y角度（叠加在出生点的基础角度上） ==========
+        float randomYaw = Random.Range(-randomYawRange, randomYawRange);
+        float totalYaw = selectedYawAngle + randomYaw;
+        Quaternion randomRotation = startRot * Quaternion.Euler(0f, totalYaw, 0f);
+        transform.rotation = randomRotation;
 
         // 设置固定前进速度，清除其他输入
         if (myCarMotion != null) myCarMotion.SetControl(constantForwardSpeed, 0f, 0f);
@@ -396,13 +424,18 @@ public class MyCarAgent : Agent
         float angularDelta = Mathf.Abs(prevAngularSpeed - outputOmega) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
         
         // 平稳性指标：变化越小越好（指数衰减）
-        // 目标：完全不变时为1，大幅变化时为0.1-0.3
-        float smoothness = Mathf.Exp(-(lateralDelta + angularDelta) * 2f);  // *2f 使衰减更陡峭
+        // 对自转速度应用权重，使其变化更显著地影响平稳度评分
+        // 例如：angularSmoothnessWeight=2.0 时，角速度变化的影响翻倍
+        float weightedDelta = lateralDelta + (angularDelta * angularSmoothnessWeight);
+        float smoothness = Mathf.Exp(-weightedDelta * 2f);  // *2f 使衰减更陡峭
+        
+        // 在稳定对齐状态使用强化的平稳性奖励
+        float appliedSmoothnessBonus = isStableAligned ? stableSmoothnessBonus : smoothnessBonus;
         
         // 奖励平稳输出，但要确保有正数项基准
-        // 当 smoothness=1（完全平稳）时：reward = 1.0
+        // 当 smoothness=1（完全平稳）时：reward 随 appliedSmoothnessBonus 变化
         // 当 smoothness=0.37（e^-1）时：reward ≈ 0
-        float smoothnessReward = (smoothness - 0.37f) * smoothnessBonus;  // 中立点在 e^-1 ≈ 0.37
+        float smoothnessReward = (smoothness - 0.37f) * appliedSmoothnessBonus;  // 中立点在 e^-1 ≈ 0.37
         
         // ========== 4. 稳定对齐状态下的小输出奖励 ==========
         float outputBonus = 0f;

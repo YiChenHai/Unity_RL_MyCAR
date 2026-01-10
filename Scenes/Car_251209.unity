@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 588b17227d3b6c9428fb78ae2c41c6a6, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 39a70aee0d0883f4bb425093840fd682, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -470,7 +470,7 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  preferInspectorValues: 0
+  preferInspectorValues: 1
   tape: {fileID: 1462255779}
   sensors:
   - {fileID: 1179175742}
@@ -485,7 +485,7 @@ MonoBehaviour:
   maxLateralSpeed: 0.2
   maxOmegaDeg: 80
   maxField: 8
-  maxEpisodeTime: 40
+  maxEpisodeTime: 400
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.6
   alignedBonus: 0.5
@@ -496,11 +496,27 @@ MonoBehaviour:
   turningBonus: 0.5
   turningThreshold: 0.5
   smoothnessBonus: 1
-  enableDebugLog: 0
+  stableSmoothnessBonus: 4
+  angularSmoothnessWeight: 2
+  enableDebugLog: 1
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
-  startPos: {x: 0, y: 0.15, z: 1}
-  startRot: {x: 0, y: 0, z: 0, w: 0}
+  startRot: {x: 0, y: 0.06975647, z: 0, w: 0.9975641}
+  spawnPositions:
+  - {x: 0, y: 0.15, z: 1}
+  - {x: -2, y: 0.15, z: 4}
+  - {x: -2, y: 0.15, z: 4}
+  - {x: 5, y: 0.15, z: 1}
+  - {x: 3, y: 0.15, z: 1}
+  - {x: -0.5, y: 0.15, z: 3}
+  spawnYawAngles:
+  - 0
+  - 0
+  - -180
+  - -180
+  - -90
+  - -90
+  randomYawRange: 8
 --- !u!114 &714007409
 MonoBehaviour:
   m_ObjectHideFlags: 0
