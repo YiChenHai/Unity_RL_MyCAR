@@ -430,7 +430,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 39a70aee0d0883f4bb425093840fd682, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 422af80a5223f0948ae80bc27a749f22, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
