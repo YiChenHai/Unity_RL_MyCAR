@@ -46,7 +46,7 @@ public class MyCarAgent : Agent
     public float smoothnessBonus = 2.0f;           // 输出平稳性奖励幅度（转弯时）
     public float stableSmoothnessBonus = 4.0f;     // 稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）
     [Range(0f, 5f)]
-    public float angularSmoothnessWeight = 2.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
+    public float angularSmoothnessWeight = 4.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
