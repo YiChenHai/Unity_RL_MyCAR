@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using UnityEngine;
 using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
@@ -7,6 +9,22 @@ using Unity.MLAgents.Actuators;
 
 public class MyCarAgent : Agent
 {
+    [Header("Data Collection for Distillation")]
+    public bool enableDataCollection = false;  // 启用数据收集模式
+    [Tooltip("累积模式：多回合累积数据，手动导出\n每回合模式：每回合结束时自动追加到同一文件")]
+    public bool exportPerEpisode = false;      // true=每回合追加，false=累积模式
+    [Tooltip("是否启用记录条数限制")]
+    public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
+    [Tooltip("最大记录条数（仅在启用限制时有效）\n达到此数量后，累积模式会自动导出并停止收集\n每回合模式不受此限制影响")]
+    [Range(1, 1000000)]
+    public int maxDataSamples = 10000;         // 最大记录条数
+    [Tooltip("CSV文件保存路径（留空则使用默认路径）\n可以是目录路径（如: D:/Data/）或完整文件路径\n留空时使用: Application.persistentDataPath")]
+    public string customSavePath = "";         // 用户指定的保存路径
+    private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
+    private int episodeDataCount = 0;          // 当前回合收集的数据数量（用于每回合模式）
+    private string episodeDataFilePath = null;  // 每回合模式使用的文件路径
+    private bool episodeDataHeaderWritten = false;  // 是否已写入CSV头部（每回合模式）
+    
     [Header("Config Priority")]
     [Tooltip("勾选: 使用Unity Inspector(场景/Prefab序列化)中的值。\n不勾选: 运行时与编辑器中将被脚本默认值覆盖(以代码为准)。")]
     // 参数优先级开关：
@@ -205,6 +223,16 @@ public class MyCarAgent : Agent
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
         lastRawLateralAction = 0f;  // 初始化原始动作
         lastRawAngularAction = 0f;  // 初始化原始动作
+        
+        // ========== 数据收集：回合结束处理 ==========
+        if (enableDataCollection && exportPerEpisode && collectedData.Count > 0)
+        {
+            // 每回合模式：追加上一回合的数据到文件（在 OnEpisodeBegin 时，上一回合已结束）
+            AppendEpisodeDataToFile();
+            collectedData.Clear();  // 清理内存中的数据，准备新回合
+            episodeDataCount = 0;
+        }
+        // 累积模式：不清理，继续累积数据
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -243,6 +271,27 @@ public class MyCarAgent : Agent
         // 连续动作：0=横向速度比例，1=自转速度比例
         float a_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
         float a_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+
+        // ========== 数据收集（如果启用） ==========
+        if (enableDataCollection)
+        {
+            // 检查记录条数限制（仅累积模式且启用限制时）
+            if (!exportPerEpisode && enableMaxSamplesLimit && collectedData.Count >= maxDataSamples)
+            {
+                // 达到上限时自动导出
+                ExportCollectedData();
+                enableDataCollection = false;  // 停止收集
+                Debug.Log($"[DataCollection] Reached max samples limit ({maxDataSamples}), auto-exported and disabled collection.");
+            }
+            else
+            {
+                RecordSample(a_x, a_w);
+                if (exportPerEpisode)
+                {
+                    episodeDataCount++;  // 记录当前回合的数据数量
+                }
+            }
+        }
 
         // 保存原始动作用于下一帧观察（供平滑延迟感知）
         lastRawLateralAction = a_x;
@@ -466,6 +515,283 @@ public class MyCarAgent : Agent
         // + 小输出奖励：稳定对齐时鼓励精细控制
         // + 转弯奖励：转弯时鼓励坚持而不是改变
         return alignmentReward * speedCoefficient + smoothnessReward + outputBonus + turningReward;
+    }
+
+    // ========== 数据收集方法 ==========
+    private void RecordSample(float actionX, float actionW)
+    {
+        // 重新计算观测（与CollectObservations逻辑相同）
+        List<float> observations = new List<float>();
+
+        // 1-6: 六个传感器的归一化强度
+        float[] sensorValues = new float[6];
+        for (int i = 0; i < sensors.Length; i++)
+        {
+            if (sensors[i] != null && tape != null)
+            {
+                Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                sensorValues[i] = mag.magnitude;
+                observations.Add(Mathf.Clamp01(mag.magnitude / Mathf.Max(1e-9f, maxField)));
+            }
+            else observations.Add(0f);
+        }
+
+        // 7-8: 平滑后的输出
+        observations.Add(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
+        observations.Add(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));
+
+        // 9-10: 原始动作
+        observations.Add(Mathf.Clamp(lastRawLateralAction, -1f, 1f));
+        observations.Add(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
+
+        // 11-13: 物理状态
+        Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
+        float angularVel = rb != null ? rb.angularVelocity.y : 0f;
+        observations.Add(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));
+        observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
+        observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
+
+        // 构建CSV行：obs[0-12],action[0-1]
+        StringBuilder sb = new StringBuilder();
+        foreach (float obs in observations)
+        {
+            sb.Append(obs.ToString("F6"));
+            sb.Append(",");
+        }
+        sb.Append(actionX.ToString("F6"));
+        sb.Append(",");
+        sb.Append(actionW.ToString("F6"));
+        
+        collectedData.Add(sb.ToString());
+    }
+
+    // 获取保存目录路径（如果用户指定了路径则使用，否则使用默认路径）
+    private string GetSaveDirectory()
+    {
+        if (!string.IsNullOrEmpty(customSavePath))
+        {
+            // 如果用户指定的是完整文件路径，提取目录部分
+            if (Path.HasExtension(customSavePath))
+            {
+                string dir = Path.GetDirectoryName(customSavePath);
+                return string.IsNullOrEmpty(dir) ? Application.persistentDataPath : dir;
+            }
+            // 如果是指定的目录路径，直接使用
+            return customSavePath;
+        }
+        // 默认使用持久化数据路径
+        return Application.persistentDataPath;
+    }
+
+    // 获取完整文件路径
+    private string GetFullFilePath(string fileName)
+    {
+        // 如果用户指定了完整文件路径，直接使用（忽略fileName参数）
+        if (!string.IsNullOrEmpty(customSavePath) && Path.HasExtension(customSavePath))
+        {
+            return customSavePath;
+        }
+        
+        // 否则组合目录和文件名
+        string directory = GetSaveDirectory();
+        return Path.Combine(directory, fileName);
+    }
+
+    // 追加回合数据到文件（每回合模式使用）
+    private void AppendEpisodeDataToFile()
+    {
+        if (collectedData.Count == 0)
+        {
+            return;
+        }
+
+        // 首次写入时，初始化文件路径并写入头部
+        if (episodeDataFilePath == null)
+        {
+            // 如果用户指定了完整文件路径，使用它（每回合模式追加到同一文件）
+            if (!string.IsNullOrEmpty(customSavePath) && Path.HasExtension(customSavePath))
+            {
+                episodeDataFilePath = customSavePath;
+            }
+            else
+            {
+                // 否则使用目录+自动生成的文件名
+                string fileName = $"episode_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+                episodeDataFilePath = GetFullFilePath(fileName);
+            }
+            
+            episodeDataHeaderWritten = false;
+            
+            // 确保目录存在
+            string directory = Path.GetDirectoryName(episodeDataFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                try
+                {
+                    Directory.CreateDirectory(directory);
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
+                    return;
+                }
+            }
+        }
+
+        try
+        {
+            // 如果文件不存在或未写入头部，先写入头部
+            if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
+            {
+                // 注意：最后两列是当前帧的原始动作（actionX, actionW），不是输出动作
+                string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
+                               "smoothed_vx,smoothed_omega," +
+                               "raw_action_x,raw_action_w," +
+                               "actual_vz,actual_vx,actual_omega," +
+                               "action_x,action_w";
+                File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
+                episodeDataHeaderWritten = true;
+            }
+
+            // 追加数据行
+            using (StreamWriter writer = new StreamWriter(episodeDataFilePath, append: true))
+            {
+                foreach (string dataLine in collectedData)
+                {
+                    writer.WriteLine(dataLine);
+                }
+            }
+
+            Debug.Log($"[DataCollection] Appended {collectedData.Count} samples from episode to:\n{episodeDataFilePath}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DataCollection] Failed to append episode data: {e.Message}");
+        }
+    }
+
+    // 导出收集的数据为CSV文件（累积模式或手动导出使用）
+    public void ExportCollectedData(string customFileName = null)
+    {
+        if (collectedData.Count == 0)
+        {
+            Debug.LogWarning("[DataCollection] No data collected yet!");
+            return;
+        }
+
+        // 生成文件名（带时间戳）
+        string fileName = customFileName ?? $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        string filePath = GetFullFilePath(fileName);
+        
+        // 确保目录存在
+        string directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
+                return;
+            }
+        }
+        
+        // 生成CSV头部
+        List<string> csv = new List<string>();
+        // 注意：最后两列是当前帧的原始动作（actionX, actionW），不是输出动作
+        string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
+                       "smoothed_vx,smoothed_omega," +
+                       "raw_action_x,raw_action_w," +
+                       "actual_vz,actual_vx,actual_omega," +
+                       "action_x,action_w";
+        csv.Add(header);
+        csv.AddRange(collectedData);
+
+        // 写入文件
+        try
+        {
+            File.WriteAllLines(filePath, csv);
+            Debug.Log($"[DataCollection] Successfully exported {collectedData.Count} samples to:\n{filePath}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DataCollection] Failed to export data: {e.Message}");
+        }
+    }
+
+    // 清理收集的数据
+    public void ClearCollectedData()
+    {
+        int count = collectedData.Count;
+        collectedData.Clear();
+        episodeDataCount = 0;
+        
+        // 重置每回合模式的文件状态
+        if (exportPerEpisode)
+        {
+            episodeDataFilePath = null;
+            episodeDataHeaderWritten = false;
+        }
+        
+        Debug.Log($"[DataCollection] Cleared {count} samples from memory.");
+    }
+
+    // 获取当前收集的数据数量
+    public int GetCollectedDataCount()
+    {
+        return collectedData.Count;
+    }
+
+    // 重置每回合模式的文件（开始新的文件）
+    public void ResetEpisodeDataFile()
+    {
+        if (exportPerEpisode)
+        {
+            episodeDataFilePath = null;
+            episodeDataHeaderWritten = false;
+            Debug.Log("[DataCollection] Reset episode data file. Next episode will create a new file.");
+        }
+    }
+
+    // 获取数据保存路径（用于调试或显示）
+    public string GetDataSavePath()
+    {
+        return GetSaveDirectory();
+    }
+
+    // 打印数据保存路径到控制台
+    [ContextMenu("Print Data Save Path")]
+    public void PrintDataSavePath()
+    {
+        string actualPath = GetSaveDirectory();
+        string defaultPath = Application.persistentDataPath;
+        
+        string message = $"[DataCollection] CSV文件保存路径:\n";
+        
+        if (!string.IsNullOrEmpty(customSavePath))
+        {
+            message += $"用户指定路径: {customSavePath}\n";
+            message += $"实际保存目录: {actualPath}\n";
+            if (Path.HasExtension(customSavePath))
+            {
+                message += $"完整文件路径: {customSavePath}\n";
+            }
+        }
+        else
+        {
+            message += $"使用默认路径: {actualPath}\n";
+        }
+        
+        message += $"\n默认路径（未指定时使用）:\n{defaultPath}\n\n";
+        message += $"平台特定路径:\n";
+        message += $"Windows: %userprofile%\\AppData\\LocalLow\\<CompanyName>\\<ProductName>\n";
+        message += $"Mac: ~/Library/Application Support/<CompanyName>/<ProductName>\n";
+        message += $"Linux: ~/.config/unity3d/<CompanyName>/<ProductName>";
+        
+        Debug.Log(message);
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
