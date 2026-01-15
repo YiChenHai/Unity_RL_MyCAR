@@ -293,7 +293,6 @@ GameObject:
   - component: {fileID: 714007408}
   - component: {fileID: 714007409}
   - component: {fileID: 714007410}
-  - component: {fileID: 714007411}
   m_Layer: 0
   m_Name: MyCar_Agent
   m_TagString: Untagged
@@ -310,7 +309,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 8, y: 0.156, z: 3.894}
+  m_LocalPosition: {x: 0, y: 0.156, z: 0.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -463,7 +462,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -510,13 +509,9 @@ MonoBehaviour:
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0.06975647, z: 0, w: 0.9975641}
   spawnPositions:
-  - {x: 0, y: 0.15, z: 1}
-  - {x: 1, y: 0.15, z: 10}
-  - {x: 4, y: 0.15, z: 0}
+  - {x: 0, y: 0.15, z: 0.5}
   spawnYawAngles:
   - 0
-  - 90
-  - -90
   randomYawRange: 8
 --- !u!114 &714007409
 MonoBehaviour:
@@ -555,7 +550,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ea631434d2decc54a9263747cbe92b52, type: 3}
   m_Name: 
@@ -577,22 +572,6 @@ MonoBehaviour:
   smoothingAlpha: 0.3
   showPredictedActions: 0
   showObservations: 0
---- !u!114 &714007411
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 88b6042bc9a5d4aa58d931eae49442e5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  agentParameters:
-    maxStep: 0
-  hasUpgradedFromAgentParameters: 1
-  MaxStep: 0
 --- !u!1 &751401902
 GameObject:
   m_ObjectHideFlags: 0
@@ -1476,54 +1455,38 @@ LineRenderer:
   m_Positions:
   - {x: 0, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 1}
-  - {x: 0, y: 0.04, z: 2}
+  - {x: 1, y: 0.04, z: 1}
   - {x: 1, y: 0.04, z: 2}
   - {x: 2, y: 0.04, z: 2}
   - {x: 2, y: 0.04, z: 3}
-  - {x: 2, y: 0.04, z: 4}
+  - {x: 1, y: 0.04, z: 3}
   - {x: 1, y: 0.04, z: 4}
   - {x: 0, y: 0.04, z: 4}
   - {x: 0, y: 0.04, z: 5}
-  - {x: 0, y: 0.04, z: 6}
+  - {x: 1, y: 0.04, z: 5}
   - {x: 1, y: 0.04, z: 6}
   - {x: 2, y: 0.04, z: 6}
   - {x: 2, y: 0.04, z: 7}
-  - {x: 2, y: 0.04, z: 8}
+  - {x: 1, y: 0.04, z: 7}
   - {x: 1, y: 0.04, z: 8}
   - {x: 0, y: 0.04, z: 8}
-  - {x: 0, y: 0.04, z: 9}
-  - {x: 0, y: 0.04, z: 10}
-  - {x: 1, y: 0.04, z: 10}
-  - {x: 2, y: 0.04, z: 10}
-  - {x: 3, y: 0.04, z: 10}
-  - {x: 4, y: 0.04, z: 10}
-  - {x: 5, y: 0.04, z: 10}
-  - {x: 5, y: 0.04, z: 11}
-  - {x: 6, y: 0.04, z: 11}
-  - {x: 6, y: 0.04, z: 10}
-  - {x: 7, y: 0.04, z: 10}
-  - {x: 7, y: 0.04, z: 11}
-  - {x: 8, y: 0.04, z: 11}
-  - {x: 8, y: 0.04, z: 10}
-  - {x: 9, y: 0.04, z: 10}
-  - {x: 10, y: 0.04, z: 10}
-  - {x: 10, y: 0.04, z: 9}
-  - {x: 9, y: 0.04, z: 8}
-  - {x: 9, y: 0.04, z: 7}
-  - {x: 9, y: 0.04, z: 6}
-  - {x: 8, y: 0.04, z: 5}
-  - {x: 8, y: 0.04, z: 4}
-  - {x: 8, y: 0.04, z: 3}
-  - {x: 8, y: 0.04, z: 2}
-  - {x: 8, y: 0.04, z: 1}
-  - {x: 8, y: 0.04, z: 0}
-  - {x: 7, y: 0.04, z: 0}
-  - {x: 6, y: 0.04, z: 0}
-  - {x: 5, y: 0.04, z: 0}
-  - {x: 4, y: 0.04, z: 0}
-  - {x: 3, y: 0.04, z: 0}
-  - {x: 2, y: 0.04, z: 0}
-  - {x: 1, y: 0.04, z: 0}
+  - {x: -1, y: 0.04, z: 7}
+  - {x: -1, y: 0.04, z: 7}
+  - {x: -2, y: 0.04, z: 7}
+  - {x: -2, y: 0.04, z: 8}
+  - {x: -3, y: 0.04, z: 8}
+  - {x: -4, y: 0.04, z: 7}
+  - {x: -3, y: 0.04, z: 6}
+  - {x: -3, y: 0.04, z: 5}
+  - {x: -2, y: 0.04, z: 5}
+  - {x: -2, y: 0.04, z: 4}
+  - {x: -3, y: 0.04, z: 4}
+  - {x: -4, y: 0.04, z: 3}
+  - {x: -3, y: 0.04, z: 2}
+  - {x: -3, y: 0.04, z: 1}
+  - {x: -2, y: 0.04, z: 0}
+  - {x: -2, y: 0.04, z: 0}
+  - {x: -1, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 0}
   m_Parameters:
     serializedVersion: 3

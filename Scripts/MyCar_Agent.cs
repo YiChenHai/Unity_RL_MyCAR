@@ -15,13 +15,14 @@ public class MyCarAgent : Agent
     public bool exportPerEpisode = false;      // true=每回合追加，false=累积模式
     [Tooltip("是否启用记录条数限制")]
     public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
-    [Tooltip("最大记录条数（仅在启用限制时有效）\n达到此数量后，累积模式会自动导出并停止收集\n每回合模式不受此限制影响")]
+    [Tooltip("目标采集数量（仅在启用限制时有效）\n每回合模式：到达目标后停止写入\n累积模式：到达目标后自动导出并停止收集")]
     [Range(1, 1000000)]
     public int maxDataSamples = 10000;         // 最大记录条数
     [Tooltip("CSV文件保存路径（留空则使用默认路径）\n可以是目录路径（如: D:/Data/）或完整文件路径\n留空时使用: Application.persistentDataPath")]
     public string customSavePath = "";         // 用户指定的保存路径
     private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
     private int episodeDataCount = 0;          // 当前回合收集的数据数量（用于每回合模式）
+    private int totalCollectedSamples = 0;     // 已累计写入的总样本数（跨回合）
     private string episodeDataFilePath = null;  // 每回合模式使用的文件路径
     private bool episodeDataHeaderWritten = false;  // 是否已写入CSV头部（每回合模式）
     
@@ -225,7 +226,7 @@ public class MyCarAgent : Agent
         lastRawAngularAction = 0f;  // 初始化原始动作
         
         // ========== 数据收集：回合结束处理 ==========
-        if (enableDataCollection && exportPerEpisode && collectedData.Count > 0)
+        if (exportPerEpisode && collectedData.Count > 0)
         {
             // 每回合模式：追加上一回合的数据到文件（在 OnEpisodeBegin 时，上一回合已结束）
             AppendEpisodeDataToFile();
@@ -275,8 +276,14 @@ public class MyCarAgent : Agent
         // ========== 数据收集（如果启用） ==========
         if (enableDataCollection)
         {
-            // 检查记录条数限制（仅累积模式且启用限制时）
-            if (!exportPerEpisode && enableMaxSamplesLimit && collectedData.Count >= maxDataSamples)
+            // 每回合模式：达到目标数量后停止写入
+            if (exportPerEpisode && enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+            {
+                enableDataCollection = false;
+                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
+            }
+            // 检查记录条数限制（累积模式）
+            else if (!exportPerEpisode && enableMaxSamplesLimit && collectedData.Count >= maxDataSamples)
             {
                 // 达到上限时自动导出
                 ExportCollectedData();
@@ -285,10 +292,27 @@ public class MyCarAgent : Agent
             }
             else
             {
-                RecordSample(a_x, a_w);
-                if (exportPerEpisode)
+                if (exportPerEpisode && enableMaxSamplesLimit)
                 {
-                    episodeDataCount++;  // 记录当前回合的数据数量
+                    int remaining = maxDataSamples - totalCollectedSamples - collectedData.Count;
+                    if (remaining <= 0)
+                    {
+                        enableDataCollection = false;
+                        Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
+                    }
+                    else
+                    {
+                        RecordSample(a_x, a_w);
+                        episodeDataCount++;  // 记录当前回合的数据数量
+                    }
+                }
+                else
+                {
+                    RecordSample(a_x, a_w);
+                    if (exportPerEpisode)
+                    {
+                        episodeDataCount++;  // 记录当前回合的数据数量
+                    }
                 }
             }
         }
@@ -654,16 +678,41 @@ public class MyCarAgent : Agent
                 episodeDataHeaderWritten = true;
             }
 
-            // 追加数据行
-            using (StreamWriter writer = new StreamWriter(episodeDataFilePath, append: true))
+            // 计算本次可写入的数量（考虑目标上限）
+            int writeCount = collectedData.Count;
+            if (enableMaxSamplesLimit)
             {
-                foreach (string dataLine in collectedData)
+                int remaining = maxDataSamples - totalCollectedSamples;
+                if (remaining <= 0)
                 {
-                    writer.WriteLine(dataLine);
+                    Debug.Log($"[DataCollection] Target samples ({maxDataSamples}) reached, no more data will be written.");
+                    enableDataCollection = false;
+                    return;
+                }
+                if (remaining < writeCount)
+                {
+                    writeCount = remaining;
+                    Debug.Log($"[DataCollection] Truncate episode data: write {writeCount}/{collectedData.Count} to reach target.");
                 }
             }
 
-            Debug.Log($"[DataCollection] Appended {collectedData.Count} samples from episode to:\n{episodeDataFilePath}");
+            // 追加数据行
+            using (StreamWriter writer = new StreamWriter(episodeDataFilePath, append: true))
+            {
+                for (int i = 0; i < writeCount; i++)
+                {
+                    writer.WriteLine(collectedData[i]);
+                }
+            }
+
+            totalCollectedSamples += writeCount;
+            Debug.Log($"[DataCollection] Appended {writeCount} samples from episode to:\n{episodeDataFilePath}");
+
+            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+            {
+                enableDataCollection = false;
+                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), collection stopped.");
+            }
         }
         catch (System.Exception e)
         {
