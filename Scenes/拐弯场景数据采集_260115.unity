@@ -471,9 +471,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 1
-  exportPerEpisode: 1
-  enableMaxSamplesLimit: 1
+  enableDataCollection: 0
+  exportPerEpisode: 0
+  enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Assets\ML-Agents\Results_onnx_Release
   preferInspectorValues: 1
@@ -504,13 +504,16 @@ MonoBehaviour:
   smoothnessBonus: 1
   stableSmoothnessBonus: 4
   angularSmoothnessWeight: 2
+  derailPenalty: -8
   enableDebugLog: 1
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0.06975647, z: 0, w: 0.9975641}
   spawnPositions:
   - {x: 0, y: 0.15, z: 0.5}
+  - {x: -3, y: 0.15, z: 1.5}
   spawnYawAngles:
+  - 0
   - 0
   randomYawRange: 8
 --- !u!114 &714007409

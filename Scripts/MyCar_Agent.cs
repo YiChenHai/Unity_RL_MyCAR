@@ -66,6 +66,8 @@ public class MyCarAgent : Agent
     public float stableSmoothnessBonus = 4.0f;     // 稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）
     [Range(0f, 5f)]
     public float angularSmoothnessWeight = 4.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
+    [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
+    public float derailPenalty = -8.0f;
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -387,7 +389,7 @@ public class MyCarAgent : Agent
         if (frontCenter < derailThresholdValue || rearCenter < derailThresholdValue)
         {
             // 中心传感器低于20% → 立即脱轨，无时间缓冲
-            AddReward(-5f);
+            AddReward(derailPenalty);
             if (enableDebugLog)
             {
                 Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
