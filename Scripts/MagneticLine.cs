@@ -22,7 +22,7 @@ public class MagneticTape : MonoBehaviour
     public float effectiveRange = 0.2f; // 20cm 有效影响范围（球形）
 
     [Header("积分参数")]
-    public int integrationStepsPerSegment = 100; // 每段线段积分步数
+    public int integrationStepsPerSegment = 100; // 每段线段积分步数（越大越精细）
 
     void Awake()
     {
@@ -45,6 +45,11 @@ public class MagneticTape : MonoBehaviour
         {
             Vector3 start = points[i];
             Vector3 end = points[i + 1];
+            float segmentLength = Vector3.Distance(start, end);
+            if (segmentLength <= 0f)
+            {
+                continue;
+            }
 
             // 对每条线段做离散积分
             for (int s = 0; s < integrationStepsPerSegment; s++)
@@ -74,8 +79,8 @@ public class MagneticTape : MonoBehaviour
                 Vector3 direction = delta.normalized; // 磁场的方向是从磁条采样点指向传感器 单位向量
                 Vector3 magneticFieldVector = direction * B;
 
-                // 累加磁场矢量
-                totalMagneticField += magneticFieldVector / integrationStepsPerSegment;
+                // 按线段长度归一化，避免点密度不一致导致强度变化
+                totalMagneticField += magneticFieldVector * (segmentLength / integrationStepsPerSegment);
             }
         }
 

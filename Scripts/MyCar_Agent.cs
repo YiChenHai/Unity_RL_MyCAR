@@ -67,10 +67,20 @@ public class MyCarAgent : Agent
     [Range(0f, 5f)]
     public float angularSmoothnessWeight = 4.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
     [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
-    public float derailPenalty = -8.0f;
+    public float derailPenalty = -15.0f;  // 增强脱轨惩罚，从-8增加到-10
+    [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
+    public float warningUpperThresholdPercent = 0.25f;  // 25%上限
+    [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
+    public float warningPenaltyCoefficient = -3.0f;  // 预警惩罚系数，从-1.0增加到-3.0
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
+    [Tooltip("是否启用脱轨日志记录（记录到文件）")]
+    public bool enableDerailmentLogging = true;  // 脱轨日志开关
+    [Tooltip("脱轨日志文件保存路径（留空则使用默认路径）")]
+    public string derailmentLogPath = "";  // 脱轨日志文件路径
+    private string derailmentLogFilePath = null;  // 实际使用的日志文件路径
+    private int derailmentCount = 0;  // 脱轨次数计数器
 
     [Header("Stable Tracking")]
     public float stableAlignedTime = 1.0f;     // 稳定对齐时间阈值（秒）
@@ -89,6 +99,7 @@ public class MyCarAgent : Agent
     private float prevAngularSpeed = 0f;        // 前一帧的角速度（用于平稳性计算）
     private float lastRawLateralAction = 0f;    // 上一帧的原始神经网络输出（横向速度比例）
     private float lastRawAngularAction = 0f;    // 上一帧的原始神经网络输出（角速度比例）
+    private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
     
     [Header("Output Smoothing")]
     [Range(0f, 1f)]
@@ -152,6 +163,10 @@ public class MyCarAgent : Agent
     {
         base.Initialize();
         if (rb == null) rb = GetComponent<Rigidbody>();
+        if (spawnRng == null)
+        {
+            spawnRng = new System.Random(System.Environment.TickCount ^ GetInstanceID());
+        }
 
         if (!preferInspectorValues)
         {
@@ -194,8 +209,26 @@ public class MyCarAgent : Agent
             rb.angularVelocity = Vector3.zero;
         }
         
+        // ========== 初始化脱轨日志文件（如果启用） ==========
+        if (enableDerailmentLogging && derailmentLogFilePath == null)
+        {
+            InitializeDerailmentLogFile();
+        }
+        
         // ========== 从出生点数组中随机选择 ==========
-        int spawnIndex = Random.Range(0, Mathf.Max(1, spawnPositions.Length));
+        int spawnIndex = 0;
+        if (spawnPositions != null && spawnPositions.Length > 0)
+        {
+            if (spawnRng == null)
+            {
+                spawnRng = new System.Random(System.Environment.TickCount ^ GetInstanceID());
+            }
+            spawnIndex = spawnRng.Next(0, spawnPositions.Length);
+        }
+        if (enableDebugLog)
+        {
+            Debug.Log($"[Spawn] spawnPositions.Length={spawnPositions.Length}, spawnIndex={spawnIndex}");
+        }
         Vector3 selectedPosition = spawnPositions.Length > spawnIndex 
             ? spawnPositions[spawnIndex]
             : new Vector3(0f, 0.15f, 1f);
@@ -384,19 +417,44 @@ public class MyCarAgent : Agent
         // ========== 终止条件1：脱轨检测（立即判定） ==========
         float frontCenter = sensorValues[1];  // 前中
         float rearCenter = sensorValues[4];   // 后中
-        float derailThresholdValue = maxField * 0.2f;  // 20%最大磁场强度
+        float derailThresholdValue = maxField * 0.18f;  // 18%最大磁场强度（下调）
+        float warningUpperThresholdValue = maxField * warningUpperThresholdPercent;  // 25%上限
         
-        if (frontCenter < derailThresholdValue || rearCenter < derailThresholdValue)
+        // 取两个中心传感器的最小值
+        float minCenter = Mathf.Min(frontCenter, rearCenter);
+        
+        // ========== 脱轨检测：18%以下立即终止 ==========
+        if (minCenter < derailThresholdValue)
         {
-            // 中心传感器低于20% → 立即脱轨，无时间缓冲
+            // 中心传感器低于18% → 立即脱轨，无时间缓冲
             AddReward(derailPenalty);
+            
+            // ========== 记录脱轨信息 ==========
+            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_x, a_w, outputVx, outputOmega);
+            
             if (enableDebugLog)
             {
-                Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}");
+                Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}, threshold={derailThresholdValue:F4}");
             }
             EndEpisode();
             return;
         }
+        
+        // ========== 预警区域惩罚：18%~25%之间线性惩罚 ==========
+        if (minCenter < warningUpperThresholdValue && minCenter >= derailThresholdValue)
+        {
+            // 计算危险比例：0（在25%时）到1（在18%时）
+            float dangerRatio = 1f - (minCenter - derailThresholdValue) / (warningUpperThresholdValue - derailThresholdValue);
+            // 线性惩罚：越接近18%，惩罚越大
+            float warningPenalty = warningPenaltyCoefficient * dangerRatio * Time.fixedDeltaTime;
+            AddReward(warningPenalty);
+            
+            if (enableDebugLog)
+            {
+                Debug.Log($"[Warning] 预警区域！minCenter={minCenter:F4} ({minCenter/maxField*100:F1}%), dangerRatio={dangerRatio:F3}, penalty={warningPenalty:F4}");
+            }
+        }
+        // 25%以上：不惩罚不奖励（正常状态，继续正常奖励计算）
 
         // ========== 计算奖励 ==========
         float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_x, a_w, outputVx, outputOmega);
@@ -842,6 +900,182 @@ public class MyCarAgent : Agent
         message += $"Mac: ~/Library/Application Support/<CompanyName>/<ProductName>\n";
         message += $"Linux: ~/.config/unity3d/<CompanyName>/<ProductName>";
         
+        Debug.Log(message);
+    }
+
+    // ========== 脱轨日志记录方法 ==========
+    /// <summary>
+    /// 初始化脱轨日志文件
+    /// </summary>
+    private void InitializeDerailmentLogFile()
+    {
+        try
+        {
+            // 确定日志文件路径
+            if (!string.IsNullOrEmpty(derailmentLogPath))
+            {
+                if (Path.HasExtension(derailmentLogPath))
+                {
+                    // 用户指定了完整文件路径
+                    derailmentLogFilePath = derailmentLogPath;
+                }
+                else
+                {
+                    // 用户指定了目录路径
+                    string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+                    derailmentLogFilePath = Path.Combine(derailmentLogPath, fileName);
+                }
+            }
+            else
+            {
+                // 使用默认路径
+                string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+                derailmentLogFilePath = Path.Combine(Application.persistentDataPath, fileName);
+            }
+            
+            // 确保目录存在
+            string directory = Path.GetDirectoryName(derailmentLogFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            
+            // 写入CSV头部（如果文件不存在）
+            if (!File.Exists(derailmentLogFilePath))
+            {
+                string header = "timestamp,episode_time,derailment_count," +
+                               "position_x,position_y,position_z," +
+                               "rotation_x,rotation_y,rotation_z," +
+                               "velocity_x,velocity_y,velocity_z," +
+                               "angular_velocity_y," +
+                               "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
+                               "front_center,rear_center,threshold," +
+                               "action_x,action_w," +
+                               "output_vx,output_omega," +
+                               "is_aligned,is_stable_aligned";
+                File.WriteAllText(derailmentLogFilePath, header + System.Environment.NewLine);
+                Debug.Log($"[DerailmentLog] 脱轨日志文件已初始化: {derailmentLogFilePath}");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] 初始化脱轨日志文件失败: {e.Message}");
+            derailmentLogFilePath = null;
+        }
+    }
+    
+    /// <summary>
+    /// 记录脱轨信息
+    /// </summary>
+    private void RecordDerailment(float[] sensorValues, float frontCenter, float rearCenter, 
+                                  float threshold, float actionX, float actionW, 
+                                  float outputVx, float outputOmega)
+    {
+        if (!enableDerailmentLogging || derailmentLogFilePath == null)
+        {
+            return;
+        }
+        
+        try
+        {
+            derailmentCount++;
+            
+            // 获取当前时间和位置信息
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            Vector3 position = transform.position;
+            Vector3 rotation = transform.rotation.eulerAngles;
+            Vector3 velocity = rb != null ? rb.linearVelocity : Vector3.zero;
+            float angularVelocityY = rb != null ? rb.angularVelocity.y : 0f;
+            
+            // 构建CSV行
+            StringBuilder sb = new StringBuilder();
+            sb.Append(timestamp); sb.Append(",");
+            sb.Append(episodeTimer.ToString("F4")); sb.Append(",");
+            sb.Append(derailmentCount.ToString()); sb.Append(",");
+            
+            // 位置
+            sb.Append(position.x.ToString("F6")); sb.Append(",");
+            sb.Append(position.y.ToString("F6")); sb.Append(",");
+            sb.Append(position.z.ToString("F6")); sb.Append(",");
+            
+            // 旋转
+            sb.Append(rotation.x.ToString("F6")); sb.Append(",");
+            sb.Append(rotation.y.ToString("F6")); sb.Append(",");
+            sb.Append(rotation.z.ToString("F6")); sb.Append(",");
+            
+            // 速度
+            sb.Append(velocity.x.ToString("F6")); sb.Append(",");
+            sb.Append(velocity.y.ToString("F6")); sb.Append(",");
+            sb.Append(velocity.z.ToString("F6")); sb.Append(",");
+            
+            // 角速度
+            sb.Append(angularVelocityY.ToString("F6")); sb.Append(",");
+            
+            // 传感器值
+            for (int i = 0; i < 6; i++)
+            {
+                sb.Append((sensorValues != null && i < sensorValues.Length ? sensorValues[i] : 0f).ToString("F6"));
+                sb.Append(",");
+            }
+            
+            // 脱轨检测相关
+            sb.Append(frontCenter.ToString("F6")); sb.Append(",");
+            sb.Append(rearCenter.ToString("F6")); sb.Append(",");
+            sb.Append(threshold.ToString("F6")); sb.Append(",");
+            
+            // 动作
+            sb.Append(actionX.ToString("F6")); sb.Append(",");
+            sb.Append(actionW.ToString("F6")); sb.Append(",");
+            
+            // 输出
+            sb.Append(outputVx.ToString("F6")); sb.Append(",");
+            sb.Append(outputOmega.ToString("F6")); sb.Append(",");
+            
+            // 对齐状态
+            sb.Append(IsAligned ? "1" : "0"); sb.Append(",");
+            sb.Append(isStableAligned ? "1" : "0");
+            
+            // 追加到日志文件
+            File.AppendAllText(derailmentLogFilePath, sb.ToString() + System.Environment.NewLine);
+            
+            // 打印到控制台
+            Debug.Log($"[DerailmentLog] 脱轨记录 #{derailmentCount} | " +
+                     $"位置: ({position.x:F3}, {position.y:F3}, {position.z:F3}) | " +
+                     $"时间: {episodeTimer:F2}s | " +
+                     $"前中传感器: {frontCenter:F4} | " +
+                     $"后中传感器: {rearCenter:F4} | " +
+                     $"阈值: {threshold:F4}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] 记录脱轨信息失败: {e.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// 获取脱轨日志文件路径（用于调试或显示）
+    /// </summary>
+    public string GetDerailmentLogPath()
+    {
+        return derailmentLogFilePath ?? "未初始化";
+    }
+    
+    /// <summary>
+    /// 打印脱轨日志文件路径到控制台
+    /// </summary>
+    [ContextMenu("Print Derailment Log Path")]
+    public void PrintDerailmentLogPath()
+    {
+        string message = $"[DerailmentLog] 脱轨日志文件路径:\n";
+        if (derailmentLogFilePath != null)
+        {
+            message += $"{derailmentLogFilePath}\n";
+            message += $"脱轨次数: {derailmentCount}";
+        }
+        else
+        {
+            message += "未初始化（请确保 enableDerailmentLogging = true）";
+        }
         Debug.Log(message);
     }
 
