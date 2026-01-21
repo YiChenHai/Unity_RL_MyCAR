@@ -324,11 +324,48 @@ public class {class_name}
     {{
         return (PredictActionX(), PredictActionW());
     }}
-}}
+    }}
 """
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(code)
+    # 确保输出目录存在
+    output_dir = os.path.dirname(output_path)
+    if output_dir and not os.path.exists(output_dir):
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            raise RuntimeError(f"无法创建输出目录: {output_dir}\n错误: {e}")
+
+    # 检查文件是否已存在且可能被占用
+    if os.path.exists(output_path):
+        # 检查文件是否为只读
+        if not os.access(output_path, os.W_OK):
+            raise RuntimeError(
+                f"文件为只读或没有写入权限: {output_path}\n"
+                f"解决方案:\n"
+                f"  1. 检查文件是否被其他程序打开（如Unity编辑器、IDE等），请先关闭\n"
+                f"  2. 检查文件属性，取消只读属性\n"
+                f"  3. 以管理员权限运行脚本"
+            )
+    
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(code)
+    except PermissionError as e:
+        raise RuntimeError(
+            f"权限被拒绝，无法写入文件: {output_path}\n"
+            f"错误详情: {e}\n"
+            f"\n可能的解决方案:\n"
+            f"  1. 文件可能正在被其他程序使用（Unity编辑器、IDE、文件浏览器等）\n"
+            f"     → 请关闭所有可能占用该文件的程序\n"
+            f"  2. 文件可能被设置为只读\n"
+            f"     → 右键文件 → 属性 → 取消'只读'选项\n"
+            f"  3. 没有足够的权限\n"
+            f"     → 以管理员权限运行命令行/Python\n"
+            f"  4. 尝试使用不同的输出路径\n"
+            f"     → 使用 --out 参数指定其他路径"
+        )
+    except IOError as e:
+        raise RuntimeError(f"无法写入文件: {output_path}\n错误: {e}")
 
     print(f"✓ 规则库已生成: {output_path}")
     print(f"  - action_x R²: {r2_x:.4f}, action_w R²: {r2_w:.4f}")

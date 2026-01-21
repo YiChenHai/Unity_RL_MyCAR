@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: b77ff031321ba8a48b048ccad06bded5, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: b8469176f4599df4096dfe166d8eb568, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -491,7 +491,7 @@ MonoBehaviour:
   maxLateralSpeed: 0.2
   maxOmegaDeg: 80
   maxField: 8
-  maxEpisodeTime: 200
+  maxEpisodeTime: 40
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.6
   alignedBonus: 0.5
@@ -507,8 +507,8 @@ MonoBehaviour:
   derailPenalty: -10
   warningUpperThresholdPercent: 0.25
   warningPenaltyCoefficient: -3
-  enableDebugLog: 1
-  enableDerailmentLogging: 1
+  enableDebugLog: 0
+  enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
@@ -1477,8 +1477,8 @@ LineRenderer:
   - {x: 2, y: 0.04, z: 6}
   - {x: 1, y: 0.04, z: 6}
   - {x: 0, y: 0.04, z: 6}
-  - {x: -0.5, y: 0.04, z: 8}
-  - {x: -2, y: 0.04, z: 8}
+  - {x: 0.3, y: 0.04, z: 8}
+  - {x: -2, y: 0.04, z: 8.2}
   - {x: -3.5, y: 0.04, z: 8}
   - {x: -4, y: 0.04, z: 7}
   - {x: -3, y: 0.04, z: 6}
