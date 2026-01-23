@@ -11,20 +11,21 @@ public class MyCarAgent : Agent
 {
     [Header("Data Collection for Distillation")]
     public bool enableDataCollection = false;  // 启用数据收集模式
-    [Tooltip("累积模式：多回合累积数据，手动导出\n每回合模式：每回合结束时自动追加到同一文件")]
-    public bool exportPerEpisode = false;      // true=每回合追加，false=累积模式
+    [Tooltip("是否记录脱轨终止的回合数据\nfalse=不记录脱轨终止的回合（推荐，避免学习错误行为）\ntrue=记录所有回合，包括脱轨终止的回合")]
+    public bool recordDerailmentEpisodes = false;  // 是否记录脱轨终止的回合
     [Tooltip("是否启用记录条数限制")]
     public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
-    [Tooltip("目标采集数量（仅在启用限制时有效）\n每回合模式：到达目标后停止写入\n累积模式：到达目标后自动导出并停止收集")]
+    [Tooltip("目标采集数量（仅在启用限制时有效）\n到达目标后停止写入")]
     [Range(1, 1000000)]
     public int maxDataSamples = 10000;         // 最大记录条数
-    [Tooltip("CSV文件保存路径（留空则使用默认路径）\n可以是目录路径（如: D:/Data/）或完整文件路径\n留空时使用: Application.persistentDataPath")]
-    public string customSavePath = "";         // 用户指定的保存路径
+    [Tooltip("CSV文件保存文件夹路径（留空则使用默认路径）\n例如: D:/Data/ 或 D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/\n留空时使用: Application.persistentDataPath\n文件会自动以日期命名：training_data_yyyyMMdd_HHmmss.csv")]
+    public string customSavePath = "";         // 用户指定的保存文件夹路径
     private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
-    private int episodeDataCount = 0;          // 当前回合收集的数据数量（用于每回合模式）
+    private int episodeDataCount = 0;          // 当前回合收集的数据数量
     private int totalCollectedSamples = 0;     // 已累计写入的总样本数（跨回合）
-    private string episodeDataFilePath = null;  // 每回合模式使用的文件路径
-    private bool episodeDataHeaderWritten = false;  // 是否已写入CSV头部（每回合模式）
+    private string episodeDataFilePath = null;  // 使用的文件路径
+    private bool episodeDataHeaderWritten = false;  // 是否已写入CSV头部
+    private bool episodeEndedByDerailment = false;  // 标记当前回合是否因脱轨终止
     
     [Header("Config Priority")]
     [Tooltip("勾选: 使用Unity Inspector(场景/Prefab序列化)中的值。\n不勾选: 运行时与编辑器中将被脚本默认值覆盖(以代码为准)。")]
@@ -261,14 +262,28 @@ public class MyCarAgent : Agent
         lastRawAngularAction = 0f;  // 初始化原始动作
         
         // ========== 数据收集：回合结束处理 ==========
-        if (exportPerEpisode && collectedData.Count > 0)
+        // 检查上一回合是否因脱轨终止（在OnEpisodeBegin时，上一回合已结束）
+        bool shouldSaveLastEpisode = recordDerailmentEpisodes || !episodeEndedByDerailment;
+        
+        // 每回合结束时自动写入
+        if (collectedData.Count > 0 && shouldSaveLastEpisode)
         {
-            // 每回合模式：追加上一回合的数据到文件（在 OnEpisodeBegin 时，上一回合已结束）
+            // 保存上一回合的数据到文件
             AppendEpisodeDataToFile();
-            collectedData.Clear();  // 清理内存中的数据，准备新回合
-            episodeDataCount = 0;
+            Debug.Log($"[DataCollection] 回合数据已保存，样本数: {collectedData.Count}");
         }
-        // 累积模式：不清理，继续累积数据
+        else if (collectedData.Count > 0 && !shouldSaveLastEpisode)
+        {
+            // 因脱轨终止且不记录脱轨回合，跳过保存
+            Debug.Log($"[DataCollection] 回合因脱轨终止，跳过保存（recordDerailmentEpisodes=false），样本数: {collectedData.Count}");
+        }
+        
+        // 清理内存中的数据，准备新回合
+        collectedData.Clear();
+        episodeDataCount = 0;
+        
+        // 重置脱轨标志
+        episodeEndedByDerailment = false;
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -311,44 +326,32 @@ public class MyCarAgent : Agent
         // ========== 数据收集（如果启用） ==========
         if (enableDataCollection)
         {
-            // 每回合模式：达到目标数量后停止写入
-            if (exportPerEpisode && enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+            // 检查是否达到目标数量
+            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
             {
                 enableDataCollection = false;
                 Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
             }
-            // 检查记录条数限制（累积模式）
-            else if (!exportPerEpisode && enableMaxSamplesLimit && collectedData.Count >= maxDataSamples)
+            else if (enableMaxSamplesLimit)
             {
-                // 达到上限时自动导出
-                ExportCollectedData();
-                enableDataCollection = false;  // 停止收集
-                Debug.Log($"[DataCollection] Reached max samples limit ({maxDataSamples}), auto-exported and disabled collection.");
-            }
-            else
-            {
-                if (exportPerEpisode && enableMaxSamplesLimit)
+                // 检查剩余可采集数量
+                int remaining = maxDataSamples - totalCollectedSamples - collectedData.Count;
+                if (remaining <= 0)
                 {
-                    int remaining = maxDataSamples - totalCollectedSamples - collectedData.Count;
-                    if (remaining <= 0)
-                    {
-                        enableDataCollection = false;
-                        Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
-                    }
-                    else
-                    {
-                        RecordSample(a_x, a_w);
-                        episodeDataCount++;  // 记录当前回合的数据数量
-                    }
+                    enableDataCollection = false;
+                    Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
                 }
                 else
                 {
                     RecordSample(a_x, a_w);
-                    if (exportPerEpisode)
-                    {
-                        episodeDataCount++;  // 记录当前回合的数据数量
-                    }
+                    episodeDataCount++;  // 记录当前回合的数据数量
                 }
+            }
+            else
+            {
+                // 无限制，正常采集
+                RecordSample(a_x, a_w);
+                episodeDataCount++;  // 记录当前回合的数据数量
             }
         }
 
@@ -429,6 +432,9 @@ public class MyCarAgent : Agent
             // 中心传感器低于18% → 立即脱轨，无时间缓冲
             AddReward(derailPenalty);
             
+            // ========== 标记为脱轨终止 ==========
+            episodeEndedByDerailment = true;
+            
             // ========== 记录脱轨信息 ==========
             RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_x, a_w, outputVx, outputOmega);
             
@@ -464,6 +470,9 @@ public class MyCarAgent : Agent
         episodeTimer += Time.fixedDeltaTime;
         if (episodeTimer >= maxEpisodeTime)
         {
+            // 超时终止，不是脱轨终止
+            episodeEndedByDerailment = false;
+            
             if (enableDebugLog)
             {
                 Debug.Log($"Episode Ended: timeout. episodeTimer={episodeTimer:F2}s");
@@ -655,11 +664,16 @@ public class MyCarAgent : Agent
     {
         if (!string.IsNullOrEmpty(customSavePath))
         {
-            // 如果用户指定的是完整文件路径，提取目录部分
+            // customSavePath现在只接受目录路径，不再接受完整文件路径
+            // 如果用户误输入了完整文件路径，提取目录部分
             if (Path.HasExtension(customSavePath))
             {
                 string dir = Path.GetDirectoryName(customSavePath);
-                return string.IsNullOrEmpty(dir) ? Application.persistentDataPath : dir;
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Debug.LogWarning($"[DataCollection] customSavePath应该是目录路径，检测到文件路径，已提取目录: {dir}");
+                    return dir;
+                }
             }
             // 如果是指定的目录路径，直接使用
             return customSavePath;
@@ -671,13 +685,7 @@ public class MyCarAgent : Agent
     // 获取完整文件路径
     private string GetFullFilePath(string fileName)
     {
-        // 如果用户指定了完整文件路径，直接使用（忽略fileName参数）
-        if (!string.IsNullOrEmpty(customSavePath) && Path.HasExtension(customSavePath))
-        {
-            return customSavePath;
-        }
-        
-        // 否则组合目录和文件名
+        // 组合目录和文件名（使用日期命名的文件名）
         string directory = GetSaveDirectory();
         return Path.Combine(directory, fileName);
     }
@@ -693,22 +701,14 @@ public class MyCarAgent : Agent
         // 首次写入时，初始化文件路径并写入头部
         if (episodeDataFilePath == null)
         {
-            // 如果用户指定了完整文件路径，使用它（每回合模式追加到同一文件）
-            if (!string.IsNullOrEmpty(customSavePath) && Path.HasExtension(customSavePath))
-            {
-                episodeDataFilePath = customSavePath;
-            }
-            else
-            {
-                // 否则使用目录+自动生成的文件名
-                string fileName = $"episode_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-                episodeDataFilePath = GetFullFilePath(fileName);
-            }
+            // 使用日期命名：training_data_yyyyMMdd_HHmmss.csv
+            string fileName = $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            episodeDataFilePath = GetFullFilePath(fileName);
             
             episodeDataHeaderWritten = false;
             
             // 确保目录存在
-            string directory = Path.GetDirectoryName(episodeDataFilePath);
+            string directory = GetSaveDirectory();
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
                 try
@@ -780,7 +780,7 @@ public class MyCarAgent : Agent
         }
     }
 
-    // 导出收集的数据为CSV文件（累积模式或手动导出使用）
+    // 导出收集的数据为CSV文件（手动导出使用，通常不需要，因为每回合自动写入）
     public void ExportCollectedData(string customFileName = null)
     {
         if (collectedData.Count == 0)
@@ -794,7 +794,7 @@ public class MyCarAgent : Agent
         string filePath = GetFullFilePath(fileName);
         
         // 确保目录存在
-        string directory = Path.GetDirectoryName(filePath);
+        string directory = GetSaveDirectory();
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
             try
@@ -831,22 +831,19 @@ public class MyCarAgent : Agent
         }
     }
 
-    // 清理收集的数据
-    public void ClearCollectedData()
-    {
-        int count = collectedData.Count;
-        collectedData.Clear();
-        episodeDataCount = 0;
-        
-        // 重置每回合模式的文件状态
-        if (exportPerEpisode)
+        // 清理收集的数据
+        public void ClearCollectedData()
         {
+            int count = collectedData.Count;
+            collectedData.Clear();
+            episodeDataCount = 0;
+            
+            // 重置文件状态
             episodeDataFilePath = null;
             episodeDataHeaderWritten = false;
+            
+            Debug.Log($"[DataCollection] Cleared {count} samples from memory.");
         }
-        
-        Debug.Log($"[DataCollection] Cleared {count} samples from memory.");
-    }
 
     // 获取当前收集的数据数量
     public int GetCollectedDataCount()
@@ -854,15 +851,12 @@ public class MyCarAgent : Agent
         return collectedData.Count;
     }
 
-    // 重置每回合模式的文件（开始新的文件）
+    // 重置文件（开始新的文件）
     public void ResetEpisodeDataFile()
     {
-        if (exportPerEpisode)
-        {
-            episodeDataFilePath = null;
-            episodeDataHeaderWritten = false;
-            Debug.Log("[DataCollection] Reset episode data file. Next episode will create a new file.");
-        }
+        episodeDataFilePath = null;
+        episodeDataHeaderWritten = false;
+        Debug.Log("[DataCollection] Reset episode data file. Next episode will create a new file.");
     }
 
     // 获取数据保存路径（用于调试或显示）

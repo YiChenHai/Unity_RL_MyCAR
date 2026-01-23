@@ -309,7 +309,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 1, y: 0.156, z: 5}
+  m_LocalPosition: {x: -2.464, y: 0.156, z: 8}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 9596ef144d8d978439daf1972e99ed72, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: b8469176f4599df4096dfe166d8eb568, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -471,9 +471,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 1
+  enableDataCollection: 0
   recordDerailmentEpisodes: 0
-  enableMaxSamplesLimit: 1
+  enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
@@ -507,22 +507,22 @@ MonoBehaviour:
   derailPenalty: -10
   warningUpperThresholdPercent: 0.25
   warningPenaltyCoefficient: -3
-  enableDebugLog: 1
-  enableDerailmentLogging: 1
+  enableDebugLog: 0
+  enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: -4, y: 0.15, z: 2}
-  - {x: 1, y: 0.15, z: 5}
-  - {x: -2.5, y: 0.15, z: 2}
-  - {x: 1.5, y: 0.15, z: 5}
+  - {x: 1, y: 0.15, z: 2.5}
+  - {x: 4, y: 0.15, z: 2.5}
+  - {x: 1, y: 0.15, z: 2.5}
+  - {x: 4, y: 0.15, z: 2.5}
   spawnYawAngles:
-  - 90
-  - 90
-  - 90
-  - 90
+  - 0
+  - 0
+  - 180
+  - 180
   randomYawRange: 8
 --- !u!114 &714007409
 MonoBehaviour:
@@ -548,7 +548,7 @@ MonoBehaviour:
   - {fileID: 1550834400}
   - {fileID: 1240964160}
   showDebugInfo: 1
-  showOutputCurves: 1
+  showOutputCurves: 0
   displayPosition: {x: 10, y: 10}
   displaySize: {x: 480, y: 550}
   curveHistoryLength: 200
@@ -1466,36 +1466,21 @@ LineRenderer:
   m_Positions:
   - {x: 0, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 1}
-  - {x: 1, y: 0.04, z: 1}
   - {x: 1, y: 0.04, z: 2}
-  - {x: 2, y: 0.04, z: 2}
-  - {x: 2, y: 0.04, z: 3}
-  - {x: 0, y: 0.04, z: 3}
+  - {x: 1, y: 0.04, z: 3}
   - {x: 0, y: 0.04, z: 4}
   - {x: 0, y: 0.04, z: 5}
-  - {x: 2, y: 0.04, z: 5}
-  - {x: 2, y: 0.04, z: 6}
   - {x: 1, y: 0.04, z: 6}
-  - {x: 0, y: 0.04, z: 6}
-  - {x: 0.3, y: 0.04, z: 8}
-  - {x: -2, y: 0.04, z: 8.2}
-  - {x: -3.5, y: 0.04, z: 8}
-  - {x: -4, y: 0.04, z: 7}
-  - {x: -3, y: 0.04, z: 6}
-  - {x: -3, y: 0.04, z: 5}
-  - {x: -2, y: 0.04, z: 5}
-  - {x: -2, y: 0.04, z: 4}
-  - {x: -3, y: 0.04, z: 4}
-  - {x: -4, y: 0.04, z: 3}
-  - {x: -4, y: 0.04, z: 2}
-  - {x: -2, y: 0.04, z: 2}
-  - {x: -2, y: 0.04, z: 1}
-  - {x: -4, y: 0.04, z: 1}
-  - {x: -4, y: 0.04, z: 0}
-  - {x: -2, y: 0.04, z: 0}
-  - {x: -2, y: 0.04, z: -1}
-  - {x: -1, y: 0.04, z: -1}
-  - {x: -1, y: 0.04, z: 0}
+  - {x: 2, y: 0.04, z: 6}
+  - {x: 3, y: 0.04, z: 5}
+  - {x: 3, y: 0.04, z: 4}
+  - {x: 4, y: 0.04, z: 3}
+  - {x: 4, y: 0.04, z: 2}
+  - {x: 3, y: 0.04, z: 1}
+  - {x: 3, y: 0.04, z: 1}
+  - {x: 3, y: 0.04, z: 0}
+  - {x: 2, y: 0.04, z: -1}
+  - {x: 1, y: 0.04, z: -1}
   - {x: 0, y: 0.04, z: 0}
   m_Parameters:
     serializedVersion: 3
