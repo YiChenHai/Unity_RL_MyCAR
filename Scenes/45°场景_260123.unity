@@ -308,8 +308,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -2.464, y: 0.156, z: 8}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -317,7 +317,7 @@ Transform:
   - {fileID: 1449184691}
   - {fileID: 561079415}
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!54 &714007403
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: b8469176f4599df4096dfe166d8eb568, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 8bd435693ff67ad45bf07b121975d149, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -462,7 +462,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -471,9 +471,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 0
-  recordDerailmentEpisodes: 0
-  enableMaxSamplesLimit: 0
+  enableDataCollection: 1
+  recordDerailmentEpisodes: 1
+  enableMaxSamplesLimit: 1
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
@@ -491,7 +491,7 @@ MonoBehaviour:
   maxLateralSpeed: 0.2
   maxOmegaDeg: 80
   maxField: 8
-  maxEpisodeTime: 40
+  maxEpisodeTime: 200
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.6
   alignedBonus: 0.5
@@ -507,8 +507,8 @@ MonoBehaviour:
   derailPenalty: -10
   warningUpperThresholdPercent: 0.25
   warningPenaltyCoefficient: -3
-  enableDebugLog: 0
-  enableDerailmentLogging: 0
+  enableDebugLog: 1
+  enableDerailmentLogging: 1
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
@@ -561,7 +561,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ea631434d2decc54a9263747cbe92b52, type: 3}
   m_Name: 

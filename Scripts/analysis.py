@@ -63,8 +63,93 @@ from sklearn.model_selection import GridSearchCV
 import json
 import seaborn as sns
 
+# ============================================================================
+# 全局配置参数（可直接在此修改，无需命令行参数）
+# ============================================================================
+
+# ========== 数据文件配置 ==========
+# CSV数据文件路径（必需）
+DATA_FILE_PATH = "D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/training_data_20260124_193252.csv"
+
+# ========== 功能选项配置 ==========
+# 是否分析特征重要性（生成特征重要性图表）
+ENABLE_ANALYSIS = False
+
+# 是否对比模型性能（生成性能对比图表）
+ENABLE_COMPARE = False
+
+# 是否可视化决策边界（生成决策边界图）
+ENABLE_BOUNDARY = False
+
+# 是否导出JSON模型（None=不导出，字符串=导出路径）
+EXPORT_JSON = None  # 例如: "model.json" 或 None
+
+# 是否生成if规则代码（None=不生成，字符串=输出文件路径）
+GENERATE_RULES = "DecisionTreeRules260125.cs"  # 例如: "DecisionTreeRules.cs" 或 None
+
+# ========== 自动优化配置（推荐使用） ==========
+# 是否启用自动参数优化（True=自动寻找最优参数，False=使用手动参数）
+USE_AUTO_OPTIMIZE = True
+
+# 目标R²分数（自动优化模式下，会尽量达到此R²值）
+# 建议范围：0.90-0.95（越高精度越好，但代码量可能越大）
+# 注意：如果设置为0.90，优化器可能在达到0.90后就停止搜索，导致R²值较低
+# 建议设置为0.93-0.95以获得更高的精度
+# 可以分别设置 action_x 和 action_w 的目标 R²
+TARGET_R2_X = 0.93  # action_x 的目标 R²（横向速度）
+TARGET_R2_W = 0.93  # action_w 的目标 R²（角速度）
+# 如果只设置一个值，两个目标使用相同值（向后兼容）
+TARGET_R2 = None  # 已废弃，使用 TARGET_R2_X 和 TARGET_R2_W
+
+# 最大代码行数限制（超过此值会警告，建议20000-500000）
+# 注意：代码行数过多可能导致Unity编译或运行问题
+MAX_CODE_LINES = 300000
+
+# ========== 手动参数配置（仅在 USE_AUTO_OPTIMIZE=False 时生效） ==========
+# 决策树最大深度（建议15-25，越大越复杂，代码量越大）
+MANUAL_DEPTH = 25
+
+# 叶子节点最小样本数（建议3-5，越大代码越小）
+MANUAL_MIN_LEAF = 3
+
+# 分裂节点最小样本数（建议6-10，越大代码越小）
+MANUAL_MIN_SPLIT = 6
+
+# 是否针对action_w进行优化（True=增加action_w树的深度，改善弯道跟踪）
+OPTIMIZE_W = True
+
+# action_w树的深度增量（仅在OPTIMIZE_W=True时生效，建议2-4）
+W_DEPTH_BOOST = 2
+
+# 每次分裂考虑的最大特征数（None=全部，'sqrt'=平方根，'log2'=对数）
+# 用于减少过拟合，通常不需要修改
+MAX_FEATURES = None  # 可选: 'sqrt', 'log2', None
+
+# 最小成本复杂度剪枝参数（0=不剪枝，越大代码越小，但可能降低精度）
+# 通常不需要修改，保持0即可
+CCP_ALPHA = 0.0
+
+# ========== 其他配置 ==========
+# 规则代码语言（'csharp'=C#代码，'python'=Python代码）
+CODE_LANGUAGE = 'csharp'
+
+# 是否警告大型代码文件（True=警告，False=不警告）
+WARN_ON_LARGE = True
+
+# ============================================================================
+# 配置说明：
+# 1. 直接修改上面的全局变量即可，无需使用命令行参数
+# 2. 命令行参数仍然可用，会覆盖全局变量设置
+# 3. 推荐配置：
+#    - USE_AUTO_OPTIMIZE = True（自动优化）
+#    - TARGET_R2 = 0.93（目标精度）
+#    - MAX_CODE_LINES = 300000（代码行数限制）
+#    - GENERATE_RULES = "DecisionTreeRules.cs"（生成规则库）
+# ============================================================================
+
 class AdvancedDistillation:
     def __init__(self, csv_path):
+        # 智能加载CSV：检查是否有表头，处理数据格式
         self.data = pd.read_csv(csv_path)
         self.feature_names = [
             "sensor0", "sensor1", "sensor2", "sensor3", "sensor4", "sensor5",
@@ -72,12 +157,65 @@ class AdvancedDistillation:
             "raw_action_x", "raw_action_w",
             "actual_vz", "actual_vx", "actual_omega"
         ]
-        self.X = self.data.iloc[:, :13].values
-        self.y_x = self.data.iloc[:, 13].values
-        self.y_w = self.data.iloc[:, 14].values
+        
+        # 检查是否有预期的列名（有表头的CSV）
+        has_expected_header = all(col in self.data.columns for col in self.feature_names + ["action_x", "action_w"])
+        
+        if has_expected_header:
+            # 有表头：使用列名索引（更安全）
+            X_data = self.data[self.feature_names]
+            self.y_x = self.data["action_x"].values
+            self.y_w = self.data["action_w"].values
+        else:
+            # 无表头或列名不匹配：使用位置索引
+            # 检查第一行是否为数值（如果是，说明无表头）
+            first_row_numeric = all(isinstance(val, (int, float)) or (isinstance(val, str) and self._is_number_string(val)) 
+                                   for val in self.data.iloc[0, :15] if pd.notna(val))
+            
+            if first_row_numeric:
+                # 无表头：直接使用位置索引
+                X_data = self.data.iloc[:, :13]
+                self.y_x = self.data.iloc[:, 13].values
+                self.y_w = self.data.iloc[:, 14].values
+            else:
+                # 有表头但列名不匹配：跳过第一行（表头），使用位置索引
+                print("⚠️  警告: CSV表头列名不匹配，跳过第一行（表头）")
+                X_data = self.data.iloc[1:, :13]
+                self.y_x = self.data.iloc[1:, 13].values
+                self.y_w = self.data.iloc[1:, 14].values
+        
+        # 数据预处理：转换为数值类型，处理缺失值
+        X_data = X_data.apply(pd.to_numeric, errors="coerce")
+        before = len(X_data)
+        X_data = X_data.dropna()
+        dropped = before - len(X_data)
+        if dropped > 0:
+            print(f"⚠️  发现 {dropped} 行非数值或缺失数据，已自动丢弃")
+        
+        # 确保目标值也是数值类型（转换为Series以便后续处理）
+        y_x_series = pd.Series(pd.to_numeric(self.y_x, errors="coerce"))
+        y_w_series = pd.Series(pd.to_numeric(self.y_w, errors="coerce"))
+        
+        # 移除对应的目标值中的NaN
+        valid_mask = pd.notna(y_x_series) & pd.notna(y_w_series)
+        X_data = X_data[valid_mask]
+        self.y_x = y_x_series[valid_mask].values
+        self.y_w = y_w_series[valid_mask].values
+        
+        self.X = X_data.values.astype(np.float32)
+        self.y_x = self.y_x.astype(np.float32)
+        self.y_w = self.y_w.astype(np.float32)
         
         # 数据质量检查
         self.check_data_quality()
+    
+    def _is_number_string(self, text):
+        """检查字符串是否为数字"""
+        try:
+            float(text)
+            return True
+        except Exception:
+            return False
     
     def check_data_quality(self):
         """检查数据质量并输出统计信息"""
@@ -292,20 +430,25 @@ class AdvancedDistillation:
         plt.savefig(f"boundary_{self.feature_names[feat1]}_vs_{self.feature_names[feat2]}.png", dpi=150)
         print(f"\n✓ 决策边界已保存: boundary_*.png")
         
-    def find_optimal_params(self, target_r2=0.95, max_iterations=50, max_code_lines=50000):
+    def find_optimal_params(self, target_r2_x=0.95, target_r2_w=0.95, max_iterations=50, max_code_lines=50000):
         """
-        自动寻找最优参数，使R²接近target_r2，同时限制代码大小
-        使用智能搜索策略：先粗搜索，再精细调整，优先选择代码更小的方案
+        自动寻找最优参数，使R²接近目标值，同时限制代码大小
+        使用智能搜索策略：先粗搜索，再精细调整
+        优先级：R²优先，代码行数次要（与generate_rules.py保持一致）
+        确保 action_x 和 action_w 都达到各自的目标 R²
         
         Args:
-            target_r2: 目标R²分数（默认0.95）
+            target_r2_x: action_x 的目标R²分数（默认0.95）
+            target_r2_w: action_w 的目标R²分数（默认0.95）
             max_iterations: 最大迭代次数（默认50）
             max_code_lines: 最大代码行数限制（默认50000）
         
         Returns:
             dict: 包含最优参数的字典
         """
-        print(f"\n=== 自动参数优化（目标R²: {target_r2:.2f}, 最大代码行数: {max_code_lines}）===")
+        print(f"\n=== 自动参数优化 ===")
+        print(f"  目标R² - action_x: {target_r2_x:.2f}, action_w: {target_r2_w:.2f}")
+        print(f"  最大代码行数: {max_code_lines}")
         
         def estimate_code_lines(tree):
             """估算决策树生成的代码行数"""
@@ -321,7 +464,8 @@ class AdvancedDistillation:
             # 第一阶段：粗搜索（快速找到大致范围）
             print(f"\n[{name} - 第一阶段：粗搜索]")
             # 从较小的深度开始，逐步增加，优先选择代码更小的方案
-            depth_range_coarse = [10, 15, 20, 25, 30, 35, 40, 45, 50]
+            # 扩大搜索范围，与generate_rules.py保持一致
+            depth_range_coarse = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
             min_leaf_coarse = [2, 3, 4, 5]  # 从较大的值开始，减少代码量
             min_split_coarse = [4, 6, 8, 10]
             
@@ -343,11 +487,12 @@ class AdvancedDistillation:
                             r2 = tree.score(self.X, y_data)
                             code_lines = estimate_code_lines(tree)
                             
-                            # 计算综合评分：R²权重高，代码大小权重低
-                            # 如果R²达到目标，优先选择代码更小的
+                            # 优先级：R²优先，代码行数次要（与generate_rules.py保持一致）
+                            # 如果R²达到目标，在满足目标的方案中选择代码最小的
                             if r2 >= target_r2:
-                                # 达到目标R²后，优先选择代码更小的
-                                if code_lines < best_code_lines or best_r2 < target_r2:
+                                # 达到目标R²后，优先选择代码更小的（但不会为了代码更小而牺牲R²）
+                                if best_r2 < target_r2 or code_lines < best_code_lines:
+                                    # 第一次达到目标，或者代码更小（R²已经满足目标）
                                     best_r2 = r2
                                     best_code_lines = code_lines
                                     best_params = {
@@ -356,11 +501,6 @@ class AdvancedDistillation:
                                         'min_samples_split': min_split
                                     }
                                     print(f"  迭代 {iteration+1}: R²={r2:.4f}, 代码行数≈{code_lines} (depth={depth}, leaf={min_leaf}, split={min_split})")
-                                    
-                                    # 如果代码大小在限制内，可以提前返回
-                                    if code_lines <= max_code_lines_per_tree * 0.8:
-                                        print(f"  ✓ 找到满意方案: R²={r2:.4f}, 代码行数≈{code_lines}")
-                                        return best_params, best_r2
                             elif r2 > best_r2:
                                 # 未达到目标时，优先选择R²更高的
                                 best_r2 = r2
@@ -408,9 +548,11 @@ class AdvancedDistillation:
                                 r2 = tree.score(self.X, y_data)
                                 code_lines = estimate_code_lines(tree)
                                 
-                                # 如果R²达到目标，优先选择代码更小的
+                                # 优先级：R²优先，代码行数次要（与generate_rules.py保持一致）
                                 if r2 >= target_r2:
-                                    if code_lines < best_code_lines or best_r2 < target_r2:
+                                    # 达到目标R²后，优先选择代码更小的（但不会为了代码更小而牺牲R²）
+                                    if best_r2 < target_r2 or code_lines < best_code_lines:
+                                        # 第一次达到目标，或者代码更小（R²已经满足目标）
                                         best_r2 = r2
                                         best_code_lines = code_lines
                                         best_params = {
@@ -419,11 +561,6 @@ class AdvancedDistillation:
                                             'min_samples_split': min_split
                                         }
                                         print(f"  迭代 {iteration+1}: R²={r2:.4f}, 代码行数≈{code_lines} (depth={depth}, leaf={min_leaf}, split={min_split})")
-                                        
-                                        # 如果代码大小在限制内，可以提前返回
-                                        if code_lines <= max_code_lines_per_tree * 0.8:
-                                            print(f"  ✓ 找到满意方案: R²={r2:.4f}, 代码行数≈{code_lines}")
-                                            return best_params, best_r2
                                 elif r2 > best_r2:
                                     # 未达到目标时，优先选择R²更高的
                                     best_r2 = r2
@@ -442,9 +579,10 @@ class AdvancedDistillation:
             return best_params, best_r2
         
         # 优化action_x和action_w，每个树分配一半的代码行数限制
+        # 确保两个目标都满足，优先满足R²要求
         max_code_lines_per_tree = max_code_lines // 2
-        params_x, r2_x = optimize_tree(self.y_x, "action_x", target_r2, max_code_lines_per_tree)
-        params_w, r2_w = optimize_tree(self.y_w, "action_w", target_r2, max_code_lines_per_tree)
+        params_x, r2_x = optimize_tree(self.y_x, "action_x", target_r2_x, max_code_lines_per_tree)
+        params_w, r2_w = optimize_tree(self.y_w, "action_w", target_r2_w, max_code_lines_per_tree)
         
         # 估算总代码行数
         tree_x_temp = DecisionTreeRegressor(
@@ -468,12 +606,20 @@ class AdvancedDistillation:
         print(f"  action_w: R²={r2_w:.4f}, 参数={params_w}, 代码行数≈{estimate_code_lines(tree_w_temp)}")
         print(f"  总代码行数估算: ≈{total_code_lines}")
         
-        if r2_x < target_r2:
-            print(f"\n  ⚠️  action_x未达到目标R² ({r2_x:.4f} < {target_r2:.2f})")
+        # 检查是否达到各自的目标R²
+        if r2_x < target_r2_x:
+            print(f"\n  ⚠️  action_x未达到目标R² ({r2_x:.4f} < {target_r2_x:.2f})")
             print(f"     建议: 增加训练数据量或检查数据质量")
-        if r2_w < target_r2:
-            print(f"\n  ⚠️  action_w未达到目标R² ({r2_w:.4f} < {target_r2:.2f})")
+            print(f"     或者: 降低 TARGET_R2_X 到 {r2_x:.2f} 或更低")
+        else:
+            print(f"  ✓ action_x已达到目标R² ({r2_x:.4f} >= {target_r2_x:.2f})")
+            
+        if r2_w < target_r2_w:
+            print(f"\n  ⚠️  action_w未达到目标R² ({r2_w:.4f} < {target_r2_w:.2f})")
             print(f"     建议: 增加弯道场景的训练数据")
+            print(f"     或者: 降低 TARGET_R2_W 到 {r2_w:.2f} 或更低")
+        else:
+            print(f"  ✓ action_w已达到目标R² ({r2_w:.4f} >= {target_r2_w:.2f})")
         
         if total_code_lines > max_code_lines:
             print(f"\n  ⚠️  警告: 总代码行数 ({total_code_lines}) 超过限制 ({max_code_lines})")
@@ -542,7 +688,7 @@ class AdvancedDistillation:
                           min_samples_leaf=5, min_samples_split=10, 
                           max_features=None, ccp_alpha=0.0,
                           optimize_w=False, w_depth_boost=2,
-                          auto_optimize=False, target_r2=0.95,
+                          auto_optimize=False, target_r2_x=0.95, target_r2_w=0.95,
                           max_code_lines=50000, warn_on_large=True):
         """
         生成if-else规则代码（可直接用于Unity C#）
@@ -557,16 +703,22 @@ class AdvancedDistillation:
             ccp_alpha: 最小成本复杂度剪枝参数（0=不剪枝，越大越简单）
             optimize_w: 是否针对action_w进行优化（增加深度或调整参数）
             w_depth_boost: 如果optimize_w=True，action_w树的深度增加量
-            auto_optimize: 是否自动优化参数以达到target_r2（默认False）
-            target_r2: 目标R²分数（默认0.95）
+            auto_optimize: 是否自动优化参数以达到目标R²（默认False）
+            target_r2_x: action_x 的目标R²分数（默认0.95）
+            target_r2_w: action_w 的目标R²分数（默认0.95）
         """
         # 自动优化模式：寻找最优参数
         if auto_optimize:
             print("\n" + "="*60)
             print("自动优化模式已启用，正在寻找最优参数...")
-            print(f"目标: R²>={target_r2:.2f}, 代码行数<={max_code_lines}")
+            print(f"目标: action_x R²>={target_r2_x:.2f}, action_w R²>={target_r2_w:.2f}")
+            print(f"代码行数限制: <={max_code_lines}")
             print("="*60)
-            optimal_params = self.find_optimal_params(target_r2=target_r2, max_code_lines=max_code_lines)
+            optimal_params = self.find_optimal_params(
+                target_r2_x=target_r2_x, 
+                target_r2_w=target_r2_w, 
+                max_code_lines=max_code_lines
+            )
             
             # 使用找到的最优参数
             depth_x = optimal_params['action_x']['max_depth'] or 50  # None表示不限制，设为50作为上限
@@ -817,87 +969,144 @@ def predict(sensor0, sensor1, sensor2, sensor3, sensor4, sensor5,
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='决策树蒸馏工具：将训练数据转换为if规则库')
-    parser.add_argument('--data', type=str, required=True, help='CSV数据文件路径')
-    parser.add_argument('--analysis', action='store_true', help='分析特征重要性')
-    parser.add_argument('--compare', action='store_true', help='对比模型性能')
-    parser.add_argument('--boundary', action='store_true', help='可视化决策边界')
-    parser.add_argument('--json', type=str, nargs='?', const='model.json', help='导出JSON模型（可选：指定输出路径）')
-    parser.add_argument('--rules', type=str, nargs='?', const='if_rules.cs', help='生成if规则代码（可选：指定输出路径，默认if_rules.cs）')
-    parser.add_argument('--depth', type=int, default=8, help='决策树最大深度（默认8）')
-    parser.add_argument('--lang', type=str, choices=['csharp', 'python'], default='csharp', help='规则代码语言（默认csharp）')
-    parser.add_argument('--min-leaf', type=int, default=5, help='叶子节点最小样本数（默认5，越小越复杂）')
-    parser.add_argument('--min-split', type=int, default=10, help='分裂节点最小样本数（默认10，越小越复杂）')
-    parser.add_argument('--max-features', type=str, default=None, choices=['sqrt', 'log2'], help='每次分裂考虑的最大特征数（sqrt/log2，默认全部）')
-    parser.add_argument('--ccp-alpha', type=float, default=0.0, help='最小成本复杂度剪枝参数（默认0=不剪枝，越大越简单）')
-    parser.add_argument('--optimize-w', action='store_true', help='针对action_w进行优化（增加深度，改善弯道跟踪）')
-    parser.add_argument('--w-depth-boost', type=int, default=2, help='optimize-w模式下，action_w树的深度增加量（默认2）')
-    parser.add_argument('--auto-optimize', action='store_true', help='自动优化参数以达到目标R²（推荐，会自动寻找最优参数）')
-    parser.add_argument('--target-r2', type=float, default=0.95, help='自动优化模式下的目标R²分数（默认0.95）')
-    parser.add_argument('--max-code-lines', '--max_code_lines', type=int, default=50000, 
-                       dest='max_code_lines', help='最大代码行数限制（默认50000，超过会警告）')
-    parser.add_argument('--no-warn-large', action='store_true', help='不警告大型代码文件')
+    parser.add_argument('--data', type=str, default=None, help='CSV数据文件路径（可选，会覆盖全局变量）')
+    parser.add_argument('--analysis', action='store_true', help='分析特征重要性（会覆盖全局变量）')
+    parser.add_argument('--compare', action='store_true', help='对比模型性能（会覆盖全局变量）')
+    parser.add_argument('--boundary', action='store_true', help='可视化决策边界（会覆盖全局变量）')
+    parser.add_argument('--json', type=str, nargs='?', const='model.json', help='导出JSON模型（可选：指定输出路径，会覆盖全局变量）')
+    parser.add_argument('--rules', type=str, nargs='?', const='if_rules.cs', help='生成if规则代码（可选：指定输出路径，会覆盖全局变量）')
+    parser.add_argument('--depth', type=int, default=None, help='决策树最大深度（会覆盖全局变量）')
+    parser.add_argument('--lang', type=str, choices=['csharp', 'python'], default=None, help='规则代码语言（会覆盖全局变量）')
+    parser.add_argument('--min-leaf', type=int, default=None, help='叶子节点最小样本数（会覆盖全局变量）')
+    parser.add_argument('--min-split', type=int, default=None, help='分裂节点最小样本数（会覆盖全局变量）')
+    parser.add_argument('--max-features', type=str, default=None, choices=['sqrt', 'log2'], help='每次分裂考虑的最大特征数（会覆盖全局变量）')
+    parser.add_argument('--ccp-alpha', type=float, default=None, help='最小成本复杂度剪枝参数（会覆盖全局变量）')
+    parser.add_argument('--optimize-w', action='store_true', help='针对action_w进行优化（会覆盖全局变量）')
+    parser.add_argument('--w-depth-boost', type=int, default=None, help='optimize-w模式下，action_w树的深度增加量（会覆盖全局变量）')
+    parser.add_argument('--auto-optimize', action='store_true', help='自动优化参数以达到目标R²（会覆盖全局变量）')
+    parser.add_argument('--target-r2', type=float, default=None, help='自动优化模式下的目标R²分数（会覆盖全局变量，同时设置X和W）')
+    parser.add_argument('--target-r2-x', type=float, default=None, help='action_x的目标R²分数（会覆盖全局变量）')
+    parser.add_argument('--target-r2-w', type=float, default=None, help='action_w的目标R²分数（会覆盖全局变量）')
+    parser.add_argument('--max-code-lines', '--max_code_lines', type=int, default=None, 
+                       dest='max_code_lines', help='最大代码行数限制（会覆盖全局变量）')
+    parser.add_argument('--no-warn-large', action='store_true', help='不警告大型代码文件（会覆盖全局变量）')
     
     args = parser.parse_args()
     
+    # ========== 使用全局变量，命令行参数作为覆盖 ==========
+    # 数据文件路径
+    data_path = args.data if args.data is not None else DATA_FILE_PATH
+    
+    # 功能选项（命令行参数优先，否则使用全局变量）
+    enable_analysis = args.analysis if args.analysis else ENABLE_ANALYSIS
+    enable_compare = args.compare if args.compare else ENABLE_COMPARE
+    enable_boundary = args.boundary if args.boundary else ENABLE_BOUNDARY
+    export_json = args.json if args.json is not None else EXPORT_JSON
+    generate_rules = args.rules if args.rules is not None else GENERATE_RULES
+    
+    # 自动优化参数
+    use_auto_optimize = args.auto_optimize if args.auto_optimize else USE_AUTO_OPTIMIZE
+    max_code_lines = args.max_code_lines if args.max_code_lines is not None else MAX_CODE_LINES
+    
+    # 处理目标R²：优先使用单独设置的X和W，否则使用统一的target_r2，最后使用全局变量
+    if args.target_r2_x is not None:
+        target_r2_x = args.target_r2_x
+    elif args.target_r2 is not None:
+        target_r2_x = args.target_r2
+    elif TARGET_R2_X is not None:
+        target_r2_x = TARGET_R2_X
+    else:
+        target_r2_x = 0.93  # 默认值
+    
+    if args.target_r2_w is not None:
+        target_r2_w = args.target_r2_w
+    elif args.target_r2 is not None:
+        target_r2_w = args.target_r2
+    elif TARGET_R2_W is not None:
+        target_r2_w = TARGET_R2_W
+    else:
+        target_r2_w = 0.93  # 默认值
+    
+    # 手动参数
+    depth = args.depth if args.depth is not None else MANUAL_DEPTH
+    min_leaf = args.min_leaf if args.min_leaf is not None else MANUAL_MIN_LEAF
+    min_split = args.min_split if args.min_split is not None else MANUAL_MIN_SPLIT
+    optimize_w = args.optimize_w if args.optimize_w else OPTIMIZE_W
+    w_depth_boost = args.w_depth_boost if args.w_depth_boost is not None else W_DEPTH_BOOST
+    max_features = args.max_features if args.max_features is not None else MAX_FEATURES
+    ccp_alpha = args.ccp_alpha if args.ccp_alpha is not None else CCP_ALPHA
+    
+    # 其他参数
+    code_language = args.lang if args.lang is not None else CODE_LANGUAGE
+    warn_on_large = not args.no_warn_large if args.no_warn_large else WARN_ON_LARGE
+    
     # 验证数据文件
     try:
-        dist = AdvancedDistillation(args.data)
+        dist = AdvancedDistillation(data_path)
         print(f"✓ 成功加载数据: {len(dist.data)} 条样本")
+        print(f"  数据文件: {data_path}")
     except Exception as e:
         print(f"✗ 加载数据失败: {e}")
+        print(f"  请检查数据文件路径是否正确: {data_path}")
         return
     
-    if args.analysis:
+    # 执行功能
+    if enable_analysis:
+        print("\n=== 执行特征重要性分析 ===")
         dist.analyze_feature_importance()
-    if args.compare:
-        dist.compare_models(optimize_w=args.optimize_w, w_depth_boost=args.w_depth_boost)
-    if args.boundary:
+    
+    if enable_compare:
+        print("\n=== 执行模型性能对比 ===")
+        dist.compare_models(optimize_w=optimize_w, w_depth_boost=w_depth_boost)
+    
+    if enable_boundary:
+        print("\n=== 执行决策边界可视化 ===")
         dist.analyze_decision_boundaries()
-    if args.json:
-        output_path = args.json if isinstance(args.json, str) else 'model.json'
-        dist.generate_json_model(output_path, max_depth=args.depth)
-    if args.rules:
-        output_path = args.rules if isinstance(args.rules, str) else 'if_rules.cs'
-        max_features = args.max_features
+    
+    if export_json:
+        output_path = export_json if isinstance(export_json, str) else 'model.json'
+        print(f"\n=== 导出JSON模型: {output_path} ===")
+        dist.generate_json_model(output_path, max_depth=depth)
+    
+    if generate_rules:
+        output_path = generate_rules if isinstance(generate_rules, str) else 'if_rules.cs'
+        print(f"\n=== 生成if规则代码: {output_path} ===")
+        print(f"  自动优化: {use_auto_optimize}")
+        if use_auto_optimize:
+            print(f"  目标R² - action_x: {target_r2_x:.2f}, action_w: {target_r2_w:.2f}")
+            print(f"  最大代码行数: {max_code_lines}")
+        else:
+            print(f"  树深度: {depth}")
+            print(f"  最小叶子节点: {min_leaf}")
+            print(f"  最小分裂节点: {min_split}")
+            print(f"  优化action_w: {optimize_w}")
+        
         dist.generate_if_rules(
             output_path, 
-            max_depth=args.depth, 
-            language=args.lang,
-            min_samples_leaf=args.min_leaf,
-            min_samples_split=args.min_split,
+            max_depth=depth, 
+            language=code_language,
+            min_samples_leaf=min_leaf,
+            min_samples_split=min_split,
             max_features=max_features,
-            ccp_alpha=args.ccp_alpha,
-            optimize_w=args.optimize_w,
-            w_depth_boost=args.w_depth_boost,
-            auto_optimize=args.auto_optimize,
-            target_r2=args.target_r2,
-            max_code_lines=args.max_code_lines,
-            warn_on_large=not args.no_warn_large
+            ccp_alpha=ccp_alpha,
+            optimize_w=optimize_w,
+            w_depth_boost=w_depth_boost,
+            auto_optimize=use_auto_optimize,
+            target_r2_x=target_r2_x,
+            target_r2_w=target_r2_w,
+            max_code_lines=max_code_lines,
+            warn_on_large=warn_on_large
         )
     
-    if not any([args.analysis, args.compare, args.boundary, args.json, args.rules]):
-        print("请指定至少一个选项:")
-        print("  --analysis    : 分析特征重要性")
-        print("  --compare     : 对比模型性能")
-        print("  --boundary    : 可视化决策边界")
-        print("  --json [path] : 导出JSON模型")
-        print("  --rules [path]: 生成if规则代码（推荐用于Unity）")
-        print("\n常用参数（推荐使用自动优化）:")
-        print("  --auto-optimize: 自动优化参数以达到目标R²（强烈推荐！会平衡R²和代码大小）")
-        print("  --target-r2 N  : 目标R²分数（默认0.95，建议0.90-0.95）")
-        print("  --max-code-lines N: 最大代码行数（默认50000，建议20000-50000）")
-        print("  --depth N      : 决策树最大深度（默认8，手动模式建议15-25）")
-        print("  --optimize-w   : 针对action_w优化（改善弯道跟踪）")
-        print("  --min-leaf N   : 叶子节点最小样本数（默认5，越大代码越小，建议3-5）")
-        print("\n示例:")
-        print("  # 自动优化，平衡R²和代码大小（推荐）")
-        print("  python analysis.py --data data.csv --rules --auto-optimize --target-r2 0.95 --max-code-lines 50000")
-        print("  # 限制代码大小，适合Unity（如果Unity崩溃，使用这个）")
-        print("  python analysis.py --data data.csv --rules --auto-optimize --target-r2 0.90 --max-code-lines 20000")
-        print("  # 手动指定参数")
-        print("  python analysis.py --data data.csv --rules --depth 20 --min-leaf 3 --min-split 6")
-        print("  # 对比性能并自动优化")
-        print("  python analysis.py --data data.csv --compare --rules --auto-optimize --max-code-lines 30000")
+    # 如果没有指定任何功能，显示提示
+    if not any([enable_analysis, enable_compare, enable_boundary, export_json, generate_rules]):
+        print("\n⚠️  未指定任何功能选项！")
+        print("\n请在代码中修改全局变量，或使用命令行参数:")
+        print("  命令行示例: python analysis.py --data data.csv --rules DecisionTreeRules.cs --auto-optimize")
+        print("\n或在代码中设置全局变量:")
+        print("  GENERATE_RULES = 'DecisionTreeRules.cs'")
+        print("  USE_AUTO_OPTIMIZE = True")
+        print("  TARGET_R2 = 0.93")
 
 
 if __name__ == '__main__':

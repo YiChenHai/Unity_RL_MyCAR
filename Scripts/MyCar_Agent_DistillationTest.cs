@@ -10,8 +10,8 @@ using UnityEngine;
 public class MyCar_Agent_DistillationTest : MonoBehaviour
 {
     [Header("Decision Tree Model")]
-    [Tooltip("决策树规则库实例（从 if_rules.cs 生成）")]
-    public DecisionTreeRules decisionTree;
+    [Tooltip("决策树规则库实例（从 if_rules.cs 生成）\n注意：DecisionTreeRules是普通C#类，不需要在Inspector中分配，代码会自动创建实例")]
+    public DecisionTreeRules decisionTree;  // 通常为null，代码会自动创建实例
     
     [Header("Refs (参考 MyCar_Agent.cs)")]
     public MagneticTape tape;
@@ -53,14 +53,16 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
         if (rb == null) rb = GetComponent<Rigidbody>();
         
         // 初始化决策树规则库
+        // 注意：DecisionTreeRules是普通C#类（不是MonoBehaviour），不需要在Inspector中分配
+        // 代码会自动创建实例，这是正常行为
         if (decisionTree == null)
         {
             decisionTree = new DecisionTreeRules();
-            Debug.LogWarning("[DistillationTest] DecisionTreeRules 未在Inspector中分配，已自动创建新实例");
+            Debug.Log("[DistillationTest] DecisionTreeRules 已自动创建实例（这是正常行为，无需在Inspector中分配）");
         }
         else
         {
-            Debug.Log("[DistillationTest] DecisionTreeRules 已初始化（使用Inspector中分配的实例）");
+            Debug.Log("[DistillationTest] DecisionTreeRules 使用Inspector中分配的实例");
         }
         
         // 注意：修改 if_rules.cs 后，Unity会自动重新编译，无需手动重新绑定
