@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: f7c37e56b719cce4eaca45f28fec4804, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: e48c95af8be76a944a678bae4ce9eaee, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -498,15 +498,17 @@ MonoBehaviour:
   speedHighPercent: 0.6
   speedLowPercent: 0.2
   speedPenalty: -0.2
-  smallOutputBonus: 0.5
+  smallOutputBonus: 1.5
   turningBonus: 0.5
   turningThreshold: 0.5
-  smoothnessBonus: 3
-  stableSmoothnessBonus: 4
-  angularSmoothnessWeight: 4
+  smoothnessBonus: 2
+  stableSmoothnessBonus: 3
+  angularSmoothnessWeight: 3
   derailPenalty: -10
   warningUpperThresholdPercent: 0.28
   warningPenaltyCoefficient: -4
+  alignedAngularPenalty: 1.5
+  alignedAngularDeadZone: 0.05
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record

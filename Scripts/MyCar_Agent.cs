@@ -74,6 +74,13 @@ public class MyCarAgent : Agent
     [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
     public float warningPenaltyCoefficient = -3.0f;  // 预警惩罚系数，从-1.0增加到-3.0
 
+    [Header("Aligned Straight Tracking Constraints")]
+    [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的角速度幅度 |a_w| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
+    public float alignedAngularPenalty = 1.5f;
+    [Tooltip("在【稳定对齐】时，允许的角速度输出死区：|a_w| 小于此值不惩罚，用于保留微小修正动作")]
+    [Range(0f, 0.5f)]
+    public float alignedAngularDeadZone = 0.05f;
+
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
     [Tooltip("是否启用脱轨日志记录（记录到文件）")]
@@ -601,13 +608,33 @@ public class MyCarAgent : Agent
                 turningReward = Mathf.Min(angularMagnitude * turningBonus, turningBonus);
             }
         }
-        
-        // ========== 6. 最终奖励 ==========
+
+        // ========== 6. 对齐直线阶段的角速度输出惩罚（只在稳定对齐时生效） ==========
+        float straightAngularPenalty = 0f;
+        if (isStableAligned)
+        {
+            // 使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
+            float absAw = Mathf.Abs(a_w);
+            // 死区：允许 |a_w| 在一定范围内做微小修正，不惩罚
+            float excess = Mathf.Max(0f, absAw - alignedAngularDeadZone);
+            if (excess > 0f && alignedAngularPenalty > 0f)
+            {
+                // 线性惩罚：|a_w| 超出死区越多，惩罚越大
+                straightAngularPenalty = -alignedAngularPenalty * excess;
+            }
+        }
+
+        // ========== 7. 最终奖励 ==========
         // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
         // + 平稳性奖励：鼓励稳定输出，抑制频繁震荡
         // + 小输出奖励：稳定对齐时鼓励精细控制
         // + 转弯奖励：转弯时鼓励坚持而不是改变
-        return alignmentReward * speedCoefficient + smoothnessReward + outputBonus + turningReward;
+        // + 直线角速度惩罚：在稳定直线时强烈抑制大的自转输出
+        return alignmentReward * speedCoefficient
+               + smoothnessReward
+               + outputBonus
+               + turningReward
+               + straightAngularPenalty;
     }
 
     // ========== 数据收集方法 ==========

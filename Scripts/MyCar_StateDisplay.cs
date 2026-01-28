@@ -333,9 +333,16 @@ public class MyCar_StateDisplay : MonoBehaviour
         
         float labelX = graphRect.x + 10;
         float labelY = graphRect.yMax + 5;
+
+        // 真实物理量（未归一化）：Vx 为 m/s，omega 为 deg/s
+        float currentLateralReal = myCarMotion.vx_input;
+        float currentAngularReal = myCarMotion.omega_input * Mathf.Rad2Deg;
         
-        GUILayout.BeginArea(new Rect(labelX, labelY, 300, 30));
-        GUILayout.Label($"当前值 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
+        GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
+        // 第一行：归一化后的比例（-1~1），和动作输出同尺度
+        GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
+        // 第二行：真实物理单位
+        GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", labelStyle);
         GUILayout.EndArea();
     }
 
