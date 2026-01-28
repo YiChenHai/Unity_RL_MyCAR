@@ -10,11 +10,81 @@
 
 import argparse
 import os
+from datetime import datetime
 import pandas as pd
 import numpy as np
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
+# ============================================================================
+# 全局配置参数（可直接在此修改，无需命令行参数）
+# ============================================================================
+
+# ========== 数据文件配置 ==========
+# CSV数据文件路径（必需，如果未通过命令行参数指定）
+DATA_FILE_PATH = "D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/training_data_20260124_193252.csv"  # 例如: "D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/training_data.csv"
+
+# ========== 输出文件配置 ==========
+# 输出C#文件路径或目录（如果未通过命令行参数指定）
+# 如果指定为目录，会在该目录下创建带日期的文件
+# 如果指定为文件路径，会在文件名中插入日期
+OUTPUT_FILE_PATH = "D:/XiaoYiFei/Project/Unity/XYF_Car_Test/OutputRules"  # 例如: "DecisionTreeRules.cs" 或 "D:/Output/"
+
+# C#类名
+CLASS_NAME = "DecisionTreeRules"  # 例如: "DecisionTreeRules"
+
+# 是否在文件名中自动添加日期时间戳（True=添加，False=不添加）
+# 如果为True，文件名格式：DecisionTreeRules_20260125.cs
+# 如果为False，使用原始文件名（可能覆盖旧文件）
+AUTO_ADD_DATE_TO_FILENAME = True
+
+# ========== 自动优化配置（推荐使用） ==========
+# 是否启用自动参数优化（True=自动寻找最优参数，False=使用手动参数）
+USE_AUTO_OPTIMIZE = True
+
+# 目标R²分数（自动优化模式下，会尽量达到此R²值）
+# 建议范围：0.90-0.95（越高精度越好，但代码量可能越大）
+TARGET_R2 = 0.80
+
+# 最大代码行数限制（超过此值会警告，建议20000-500000）
+# 注意：代码行数过多可能导致Unity编译或运行问题
+MAX_CODE_LINES = 300000
+
+# 自动优化最大迭代次数（建议50-200，越大搜索越充分但耗时越长）
+MAX_ITERATIONS = 50
+
+# 是否自动扩大搜索范围（True=如果未找到满足条件的参数，自动扩大搜索范围）
+AUTO_EXPAND = True
+
+# 自动优化进度打印间隔（迭代数，0=不打印进度）
+PROGRESS_INTERVAL = 20
+
+# ========== 手动参数配置（仅在 USE_AUTO_OPTIMIZE=False 时生效） ==========
+# 决策树最大深度（建议12-25，越大越复杂，代码量越大）
+MANUAL_DEPTH = 12
+
+# 叶子节点最小样本数（建议3-5，越大代码越小）
+MANUAL_MIN_LEAF = 5
+
+# 分裂节点最小样本数（建议6-10，越大代码越小）
+MANUAL_MIN_SPLIT = 10
+
+# 是否针对action_w进行优化（True=增加action_w树的深度，改善弯道跟踪）
+OPTIMIZE_W = False
+
+# action_w树的深度增量（仅在OPTIMIZE_W=True时生效，建议2-4）
+W_DEPTH_BOOST = 2
+
+# ============================================================================
+# 配置说明：
+# 1. 直接修改上面的全局变量即可，无需使用命令行参数
+# 2. 命令行参数仍然可用，会覆盖全局变量设置
+# 3. 推荐配置：
+#    - USE_AUTO_OPTIMIZE = True（自动优化）
+#    - TARGET_R2 = 0.95（目标精度）
+#    - MAX_CODE_LINES = 50000（代码行数限制）
+#    - DATA_FILE_PATH = "你的CSV文件路径"
+# ============================================================================
 
 FEATURE_NAMES = [
     "sensor0", "sensor1", "sensor2", "sensor3", "sensor4", "sensor5",
@@ -23,6 +93,41 @@ FEATURE_NAMES = [
     "actual_vz", "actual_vx", "actual_omega",
 ]
 TARGET_NAMES = ["action_x", "action_w"]
+
+
+def _add_date_to_filename(file_path):
+    """
+    在文件名中插入日期时间戳（年月日格式：yyyyMMdd）
+    例如: "DecisionTreeRules.cs" -> "DecisionTreeRules_20260125.cs"
+          "D:/Output/file.cs" -> "D:/Output/file_20260125.cs"
+          "D:/Output/" -> "D:/Output/DecisionTreeRules_20260125.cs"
+    """
+    date_str = datetime.now().strftime("%Y%m%d")
+    
+    # 如果路径是目录，在目录下创建默认文件名
+    if os.path.isdir(file_path):
+        base_name = "DecisionTreeRules"
+        ext = ".cs"
+        return os.path.join(file_path, f"{base_name}_{date_str}{ext}")
+    
+    # 分离目录、文件名和扩展名
+    dir_path = os.path.dirname(file_path)
+    filename = os.path.basename(file_path)
+    
+    # 分离文件名和扩展名
+    if '.' in filename:
+        name_part, ext = os.path.splitext(filename)
+        # 如果文件名已经包含日期格式（8位数字），替换它；否则添加日期
+        import re
+        if re.search(r'_\d{8}$', name_part):
+            # 替换现有的日期
+            name_part = re.sub(r'_\d{8}$', '', name_part)
+        new_filename = f"{name_part}_{date_str}{ext}"
+    else:
+        # 没有扩展名，直接添加日期和.cs扩展名
+        new_filename = f"{filename}_{date_str}.cs"
+    
+    return os.path.join(dir_path, new_filename) if dir_path else new_filename
 
 
 def _is_number_string(text):
@@ -374,42 +479,71 @@ public class {class_name}
 
 def main():
     parser = argparse.ArgumentParser(description="CSV -> C# if-else规则库 生成器")
-    parser.add_argument("--data", required=True, help="CSV数据文件路径")
-    parser.add_argument("--out", default="if_rules.cs", help="输出C#文件路径")
-    parser.add_argument("--class-name", default="DecisionTreeRules", help="C#类名")
-    parser.add_argument("--depth", type=int, default=12, help="决策树最大深度")
-    parser.add_argument("--min-leaf", type=int, default=5, help="叶子节点最小样本数")
-    parser.add_argument("--min-split", type=int, default=10, help="分裂节点最小样本数")
-    parser.add_argument("--optimize-w", action="store_true", help="针对action_w进行优化")
-    parser.add_argument("--w-depth-boost", type=int, default=2, help="action_w深度增加量")
-    parser.add_argument("--max-code-lines", type=int, default=50000, help="最大代码行数警戒值")
-    parser.add_argument("--auto-optimize", action="store_true", help="自动优化参数以达到目标R²")
-    parser.add_argument("--target-r2", type=float, default=0.95, help="自动优化目标R²")
-    parser.add_argument("--max-iterations", type=int, default=50, help="自动优化最大迭代次数")
-    parser.add_argument("--no-auto-expand", action="store_true", help="关闭自动扩大搜索范围")
-    parser.add_argument("--progress-interval", type=int, default=20, help="自动优化进度打印间隔(迭代数)")
+    parser.add_argument("--data", type=str, default=None, help="CSV数据文件路径（会覆盖全局变量）")
+    parser.add_argument("--out", type=str, default=None, help="输出C#文件路径（会覆盖全局变量）")
+    parser.add_argument("--class-name", type=str, default=None, help="C#类名（会覆盖全局变量）")
+    parser.add_argument("--depth", type=int, default=None, help="决策树最大深度（会覆盖全局变量）")
+    parser.add_argument("--min-leaf", type=int, default=None, help="叶子节点最小样本数（会覆盖全局变量）")
+    parser.add_argument("--min-split", type=int, default=None, help="分裂节点最小样本数（会覆盖全局变量）")
+    parser.add_argument("--optimize-w", action="store_true", help="针对action_w进行优化（会覆盖全局变量）")
+    parser.add_argument("--w-depth-boost", type=int, default=None, help="action_w深度增加量（会覆盖全局变量）")
+    parser.add_argument("--max-code-lines", type=int, default=None, help="最大代码行数警戒值（会覆盖全局变量）")
+    parser.add_argument("--auto-optimize", action="store_true", help="自动优化参数以达到目标R²（会覆盖全局变量）")
+    parser.add_argument("--target-r2", type=float, default=None, help="自动优化目标R²（会覆盖全局变量）")
+    parser.add_argument("--max-iterations", type=int, default=None, help="自动优化最大迭代次数（会覆盖全局变量）")
+    parser.add_argument("--no-auto-expand", action="store_true", help="关闭自动扩大搜索范围（会覆盖全局变量）")
+    parser.add_argument("--progress-interval", type=int, default=None, help="自动优化进度打印间隔(迭代数)（会覆盖全局变量）")
 
     args = parser.parse_args()
 
-    output_path = args.out
+    # ========== 使用全局变量，命令行参数作为覆盖 ==========
+    # 数据文件路径
+    data_path = args.data if args.data is not None else DATA_FILE_PATH
+    if not data_path:
+        parser.error("必须指定数据文件路径（通过 --data 参数或设置 DATA_FILE_PATH 全局变量）")
+    
+    # 输出文件路径（自动添加日期时间戳）
+    output_path = args.out if args.out is not None else OUTPUT_FILE_PATH
     if not os.path.isabs(output_path):
         output_path = os.path.abspath(output_path)
+    
+    # 如果启用了自动添加日期，在文件名中插入日期
+    if AUTO_ADD_DATE_TO_FILENAME:
+        output_path = _add_date_to_filename(output_path)
+    
+    # C#类名
+    class_name = args.class_name if args.class_name is not None else CLASS_NAME
+    
+    # 自动优化参数
+    auto_optimize = args.auto_optimize if args.auto_optimize else USE_AUTO_OPTIMIZE
+    target_r2 = args.target_r2 if args.target_r2 is not None else TARGET_R2
+    max_code_lines = args.max_code_lines if args.max_code_lines is not None else MAX_CODE_LINES
+    max_iterations = args.max_iterations if args.max_iterations is not None else MAX_ITERATIONS
+    auto_expand = not args.no_auto_expand if args.no_auto_expand else AUTO_EXPAND
+    progress_interval = args.progress_interval if args.progress_interval is not None else PROGRESS_INTERVAL
+    
+    # 手动参数（仅在非自动优化模式下使用）
+    depth = args.depth if args.depth is not None else MANUAL_DEPTH
+    min_leaf = args.min_leaf if args.min_leaf is not None else MANUAL_MIN_LEAF
+    min_split = args.min_split if args.min_split is not None else MANUAL_MIN_SPLIT
+    optimize_w = args.optimize_w if args.optimize_w else OPTIMIZE_W
+    w_depth_boost = args.w_depth_boost if args.w_depth_boost is not None else W_DEPTH_BOOST
 
     generate_rules(
-        data_path=args.data,
+        data_path=data_path,
         output_path=output_path,
-        class_name=args.class_name,
-        max_depth=args.depth,
-        min_leaf=args.min_leaf,
-        min_split=args.min_split,
-        optimize_w=args.optimize_w,
-        w_depth_boost=args.w_depth_boost,
-        max_code_lines=args.max_code_lines,
-        auto_optimize=args.auto_optimize,
-        target_r2=args.target_r2,
-        max_iterations=args.max_iterations,
-        auto_expand=not args.no_auto_expand,
-        progress_interval=args.progress_interval,
+        class_name=class_name,
+        max_depth=depth,
+        min_leaf=min_leaf,
+        min_split=min_split,
+        optimize_w=optimize_w,
+        w_depth_boost=w_depth_boost,
+        max_code_lines=max_code_lines,
+        auto_optimize=auto_optimize,
+        target_r2=target_r2,
+        max_iterations=max_iterations,
+        auto_expand=auto_expand,
+        progress_interval=progress_interval,
     )
 
 

@@ -85,7 +85,7 @@ ENABLE_BOUNDARY = False
 EXPORT_JSON = None  # 例如: "model.json" 或 None
 
 # 是否生成if规则代码（None=不生成，字符串=输出文件路径）
-GENERATE_RULES = "DecisionTreeRules260125.cs"  # 例如: "DecisionTreeRules.cs" 或 None
+GENERATE_RULES = "DecisionTreeRules2601252.cs"  # 例如: "DecisionTreeRules.cs" 或 None
 
 # ========== 自动优化配置（推荐使用） ==========
 # 是否启用自动参数优化（True=自动寻找最优参数，False=使用手动参数）
@@ -96,10 +96,8 @@ USE_AUTO_OPTIMIZE = True
 # 注意：如果设置为0.90，优化器可能在达到0.90后就停止搜索，导致R²值较低
 # 建议设置为0.93-0.95以获得更高的精度
 # 可以分别设置 action_x 和 action_w 的目标 R²
-TARGET_R2_X = 0.93  # action_x 的目标 R²（横向速度）
+TARGET_R2_X = 0.8  # action_x 的目标 R²（横向速度）
 TARGET_R2_W = 0.93  # action_w 的目标 R²（角速度）
-# 如果只设置一个值，两个目标使用相同值（向后兼容）
-TARGET_R2 = None  # 已废弃，使用 TARGET_R2_X 和 TARGET_R2_W
 
 # 最大代码行数限制（超过此值会警告，建议20000-500000）
 # 注意：代码行数过多可能导致Unity编译或运行问题

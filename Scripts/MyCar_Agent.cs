@@ -63,7 +63,7 @@ public class MyCarAgent : Agent
     public float smallOutputBonus = 1.0f;          // 小输出奖励系数（稳定对齐时的精细控制激励）
     public float turningBonus = 0.3f;              // 转弯鼓励奖励幅度（避免过度激励）
     public float turningThreshold = 0.3f;          // 触发转弯奖励的角速度阈值（0.3，容易触发）
-    public float smoothnessBonus = 2.0f;           // 输出平稳性奖励幅度（转弯时）
+    public float smoothnessBonus = 1.0f;           // 输出平稳性奖励幅度（转弯时）
     public float stableSmoothnessBonus = 4.0f;     // 稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）
     [Range(0f, 5f)]
     public float angularSmoothnessWeight = 4.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
@@ -532,8 +532,8 @@ public class MyCarAgent : Agent
             float centerAvg = (frontCenter + rearCenter) * 0.5f;
             float centerStrength = Mathf.Clamp01(centerAvg / Mathf.Max(1e-6f, maxField));
             
-            // 综合对齐分数：对称性70% + 中心强度30%（支持转弯时的不完全对齐）
-            alignmentReward = symmetry * 0.7f + centerStrength * 0.3f;
+            // 综合对齐分数：对称性60% + 中心强度40%（支持转弯时的不完全对齐）
+            alignmentReward = symmetry * 0.6f + centerStrength * 0.4f;
         }
 
         // ========== 2. 计算前进速度比例系数 ==========

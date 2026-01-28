@@ -462,7 +462,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -561,7 +561,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ea631434d2decc54a9263747cbe92b52, type: 3}
   m_Name: 
@@ -1469,13 +1469,13 @@ LineRenderer:
   - {x: 1, y: 0.04, z: 2}
   - {x: 1, y: 0.04, z: 3}
   - {x: 0, y: 0.04, z: 4}
-  - {x: 0, y: 0.04, z: 5}
+  - {x: 0, y: 0.04, z: 5.5}
+  - {x: 0.5, y: 0.04, z: 6}
   - {x: 1, y: 0.04, z: 6}
   - {x: 2, y: 0.04, z: 6}
-  - {x: 3, y: 0.04, z: 5}
-  - {x: 3, y: 0.04, z: 4}
-  - {x: 4, y: 0.04, z: 3}
-  - {x: 4, y: 0.04, z: 2}
+  - {x: 3.7, y: 0.04, z: 6}
+  - {x: 4, y: 0.04, z: 5.7}
+  - {x: 4, y: 0.04, z: 5}
   - {x: 3, y: 0.04, z: 1}
   - {x: 3, y: 0.04, z: 1}
   - {x: 3, y: 0.04, z: 0}

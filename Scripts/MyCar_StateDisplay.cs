@@ -25,6 +25,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     public Vector2 curveAreaSize = new Vector2(400, 250);
 
     private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
+    private static Texture2D _cyanTexture; // 青色图例颜色块
+    private static Texture2D _magentaTexture; // 洋红色图例颜色块
     
     // 曲线数据缓冲区
     private float[] _lateralSpeedHistory;
@@ -46,6 +48,20 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 初始化曲线缓冲区
         _lateralSpeedHistory = new float[curveHistoryLength];
         _angularSpeedHistory = new float[curveHistoryLength];
+        
+        // 初始化图例颜色纹理
+        if (_cyanTexture == null)
+        {
+            _cyanTexture = new Texture2D(1, 1);
+            _cyanTexture.SetPixel(0, 0, Color.cyan);
+            _cyanTexture.Apply();
+        }
+        if (_magentaTexture == null)
+        {
+            _magentaTexture = new Texture2D(1, 1);
+            _magentaTexture.SetPixel(0, 0, Color.magenta);
+            _magentaTexture.Apply();
+        }
     }
 
     void OnGUI()
@@ -281,8 +297,11 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 绘制边框
         GUI.Box(curveRect, "Agent Output Curves");
         
-        // 内部绘制区域（留出边距）
-        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, curveRect.height - 35);
+        // 绘制图例（在标题下方）
+        DrawCurveLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
+        
+        // 内部绘制区域（留出边距，为图例留出空间）
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 45, curveRect.width - 20, curveRect.height - 55);
         
         // 绘制网格和曲线
         DrawCurveGraph(innerRect);
@@ -305,7 +324,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         DrawCurveLineWithColor(graphRect, _lateralSpeedHistory, Color.cyan, "Lateral Vx");
         DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta, "Angular ω");
         
-        // 绘制当前值标签
+        // 绘制当前值标签（在图表底部）
         GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
         {
             fontSize = 11,
@@ -313,10 +332,10 @@ public class MyCar_StateDisplay : MonoBehaviour
         };
         
         float labelX = graphRect.x + 10;
-        float labelY = graphRect.y - 20;
+        float labelY = graphRect.yMax + 5;
         
-        GUILayout.BeginArea(new Rect(labelX, labelY, 200, 30));
-        GUILayout.Label($"Vx: {currentLateralNorm:F2} | ω: {currentAngularNorm:F2}", labelStyle);
+        GUILayout.BeginArea(new Rect(labelX, labelY, 300, 30));
+        GUILayout.Label($"当前值 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
         GUILayout.EndArea();
     }
 
@@ -365,6 +384,58 @@ public class MyCar_StateDisplay : MonoBehaviour
             Rect labelRect = new Rect(graphRect.x - 40, screenY - 10, 35, 20);
             GUI.Label(labelRect, val.ToString("F1"), scaleStyle);
         }
+    }
+
+    /// <summary>
+    /// 绘制图例，标明哪条曲线是哪个
+    /// </summary>
+    void DrawCurveLegend(Rect legendRect)
+    {
+        GUIStyle legendStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white },
+            fontStyle = FontStyle.Bold
+        };
+        
+        // 绘制横向速度图例（青色）
+        Color cyanColor = Color.cyan;
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), cyanColor, "横向速度 (Vx)", legendStyle);
+        
+        // 绘制角速度图例（洋红色）
+        Color magentaColor = Color.magenta;
+        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), magentaColor, "角速度 (ω)", legendStyle);
+    }
+    
+    /// <summary>
+    /// 绘制单个图例项（颜色块 + 文字）
+    /// </summary>
+    void DrawLegendItem(Rect rect, Color color, string label, GUIStyle style)
+    {
+        // 绘制颜色块（小方块）
+        Rect colorRect = new Rect(rect.x, rect.y + 2, 12, 12);
+        Texture2D colorTex = null;
+        
+        // 使用预创建的纹理（避免每帧创建）
+        if (color == Color.cyan && _cyanTexture != null)
+            colorTex = _cyanTexture;
+        else if (color == Color.magenta && _magentaTexture != null)
+            colorTex = _magentaTexture;
+        else
+        {
+            // 如果颜色不匹配，创建临时纹理
+            colorTex = new Texture2D(1, 1);
+            colorTex.SetPixel(0, 0, color);
+            colorTex.Apply();
+        }
+        
+        if (colorTex != null)
+            GUI.DrawTexture(colorRect, colorTex);
+        
+        // 绘制文字标签
+        Rect labelRect = new Rect(rect.x + 16, rect.y, rect.width - 16, rect.height);
+        style.normal.textColor = color;
+        GUI.Label(labelRect, label, style);
     }
 
     void DrawCurveLineWithColor(Rect graphRect, float[] data, Color color, string label)
@@ -434,6 +505,16 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             Destroy(_bgTexture);
             _bgTexture = null;
+        }
+        if (_cyanTexture != null)
+        {
+            Destroy(_cyanTexture);
+            _cyanTexture = null;
+        }
+        if (_magentaTexture != null)
+        {
+            Destroy(_magentaTexture);
+            _magentaTexture = null;
         }
     }
 }

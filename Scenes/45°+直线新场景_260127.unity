@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 8bd435693ff67ad45bf07b121975d149, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: f7c37e56b719cce4eaca45f28fec4804, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -471,9 +471,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 1
-  recordDerailmentEpisodes: 1
-  enableMaxSamplesLimit: 1
+  enableDataCollection: 0
+  recordDerailmentEpisodes: 0
+  enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
@@ -501,27 +501,27 @@ MonoBehaviour:
   smallOutputBonus: 0.5
   turningBonus: 0.5
   turningThreshold: 0.5
-  smoothnessBonus: 1
+  smoothnessBonus: 3
   stableSmoothnessBonus: 4
-  angularSmoothnessWeight: 2
+  angularSmoothnessWeight: 4
   derailPenalty: -10
-  warningUpperThresholdPercent: 0.25
-  warningPenaltyCoefficient: -3
-  enableDebugLog: 1
-  enableDerailmentLogging: 1
+  warningUpperThresholdPercent: 0.28
+  warningPenaltyCoefficient: -4
+  enableDebugLog: 0
+  enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: 1, y: 0.15, z: 2.5}
-  - {x: 4, y: 0.15, z: 2.5}
-  - {x: 1, y: 0.15, z: 2.5}
-  - {x: 4, y: 0.15, z: 2.5}
+  - {x: 0, y: 0.15, z: 4.5}
+  - {x: 0, y: 0.15, z: 4.5}
+  - {x: 6, y: 0.15, z: 4.5}
+  - {x: 6, y: 0.15, z: 4.5}
   spawnYawAngles:
   - 0
-  - 0
   - 180
+  - 0
   - 180
   randomYawRange: 8
 --- !u!114 &714007409
@@ -1471,16 +1471,19 @@ LineRenderer:
   - {x: 0, y: 0.04, z: 4}
   - {x: 0, y: 0.04, z: 5}
   - {x: 1, y: 0.04, z: 6}
-  - {x: 2, y: 0.04, z: 6}
-  - {x: 3, y: 0.04, z: 5}
-  - {x: 3, y: 0.04, z: 4}
-  - {x: 4, y: 0.04, z: 3}
-  - {x: 4, y: 0.04, z: 2}
-  - {x: 3, y: 0.04, z: 1}
-  - {x: 3, y: 0.04, z: 1}
-  - {x: 3, y: 0.04, z: 0}
-  - {x: 2, y: 0.04, z: -1}
+  - {x: 1, y: 0.04, z: 7}
+  - {x: 2, y: 0.04, z: 8}
+  - {x: 2, y: 0.04, z: 9}
+  - {x: 3, y: 0.04, z: 10}
+  - {x: 4, y: 0.04, z: 10}
+  - {x: 5, y: 0.04, z: 10}
+  - {x: 6, y: 0.04, z: 9}
+  - {x: 6, y: 0.04, z: 0}
+  - {x: 5, y: 0.04, z: -1}
+  - {x: 3, y: 0.04, z: -1}
   - {x: 1, y: 0.04, z: -1}
+  - {x: 0.7, y: 0.04, z: -1}
+  - {x: 0, y: 0.04, z: -0.3}
   - {x: 0, y: 0.04, z: 0}
   m_Parameters:
     serializedVersion: 3
