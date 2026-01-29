@@ -17,7 +17,7 @@ public class MyCarAgent : Agent
     public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
     [Tooltip("目标采集数量（仅在启用限制时有效）\n到达目标后停止写入")]
     [Range(1, 1000000)]
-    public int maxDataSamples = 10000;         // 最大记录条数
+    public int maxDataSamples = 300000;         // 最大记录条数
     [Tooltip("CSV文件保存文件夹路径（留空则使用默认路径）\n例如: D:/Data/ 或 D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/\n留空时使用: Application.persistentDataPath\n文件会自动以日期命名：training_data_yyyyMMdd_HHmmss.csv")]
     public string customSavePath = "";         // 用户指定的保存文件夹路径
     private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
@@ -43,8 +43,8 @@ public class MyCarAgent : Agent
 
     [Header("Control limits (body frame - Unity标准)")]
     public float constantForwardSpeed = 0.2f;  // vz 固定前进速度 m/s
-    public float maxLateralSpeed = 0.1f;       // vx (横向速度) m/s
-    public float maxOmegaDeg = 120f;            // omega (自转角速度) deg/s - 防止轮子翻转
+    public float maxLateralSpeed = 0.15f;       // vx (横向速度) m/s
+    public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
 
     [Header("Normalization")]
     public float maxField = 8f;                // 磁场最大值
@@ -57,17 +57,17 @@ public class MyCarAgent : Agent
     
     [Header("1. 基础对齐奖励 (Alignment Reward)")]
     [Tooltip("对齐状态：左右差值阈值（15%，放宽）")]
-    public float alignedThresholdPercent = 0.15f;
+    public float alignedThresholdPercent = 0.1f;
     [Tooltip("对齐状态：中心传感器阈值（45%，放宽支持转弯）")]
-    public float centerThresholdPercent = 0.45f;
+    public float centerThresholdPercent = 0.65f;
     [Tooltip("对齐状态的额外奖励")]
     public float alignedBonus = 0.5f;
 
     [Header("2. 速度系数 (Speed Coefficient)")]
     [Tooltip("速度比例系数为1的阈值（45%）")]
-    public float speedHighPercent = 0.45f;
+    public float speedHighPercent = 0.6f;
     [Tooltip("速度惩罚阈值（10%，放宽以允许转弯减速）")]
-    public float speedLowPercent = 0.10f;
+    public float speedLowPercent = 0.20f;
     [Tooltip("速度过低时的惩罚值（-0.5→-0.2，缓和）")]
     public float speedPenalty = -0.2f;
 
@@ -75,16 +75,22 @@ public class MyCarAgent : Agent
     [Tooltip("输出平稳性奖励幅度（转弯时）")]
     public float smoothnessBonus = 1.0f;
     [Tooltip("稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）")]
-    public float stableSmoothnessBonus = 4.0f;
+    public float stableSmoothnessBonus = 2.0f;
     [Tooltip("自转速度平稳性权重（越大越强调自转平稳）")]
     [Range(0f, 5f)]
-    public float angularSmoothnessWeight = 4.0f;
+    public float angularSmoothnessWeight = 1.0f;
 
-    [Header("4. 小输出奖励 (Small Output Bonus)")]
-    [Tooltip("小输出奖励系数（稳定对齐时的精细控制激励）")]
+    [Header("4. 小输出奖励 (Small Output Bonus) - 已弃用")]
+    [Tooltip("【已弃用】小输出奖励已移除，改用直线角速度惩罚。保留此参数仅为兼容性，不会影响奖励计算。")]
+    [System.Obsolete("此奖励项已移除，请使用直线角速度惩罚代替")]
     public float smallOutputBonus = 1.0f;
+    [Tooltip("横向速度与角速度的配平系数（用于等效二者对车轮转角的影响）\n根据实测：vx归一化6.67%和omega归一化3.75%产生相同转角，系数≈0.562\n【注意】此系数目前仅用于平稳性奖励的配平")]
+    [Range(0.1f, 2.0f)]
+    public float lateralAngularEquivalenceFactor = 0.562f;
 
     [Header("5. 转弯奖励 (Turning Reward)")]
+    [Tooltip("是否启用转弯鼓励奖励（在非对齐状态下奖励坚持转弯）")]
+    public bool enableTurningReward = false;
     [Tooltip("转弯鼓励奖励幅度（避免过度激励）")]
     public float turningBonus = 0.3f;
     [Tooltip("触发转弯奖励的角速度阈值（0.3，容易触发）")]
@@ -94,16 +100,21 @@ public class MyCarAgent : Agent
     [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
     public float derailPenalty = -15.0f;
     [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
-    public float warningUpperThresholdPercent = 0.25f;
+    public float warningUpperThresholdPercent = 0.3f;
     [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
-    public float warningPenaltyCoefficient = -3.0f;
+    public float warningPenaltyCoefficient = -4.0f;
 
-    [Header("7. 直线角速度惩罚 (Straight Angular Penalty)")]
+    [Header("7. 直线输出限制 (Straight Output Constraints)")]
     [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的角速度幅度 |a_w| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
     public float alignedAngularPenalty = 1.5f;
     [Tooltip("在【稳定对齐】时，允许的角速度输出死区：|a_w| 小于此值不惩罚，用于保留微小修正动作")]
     [Range(0f, 0.5f)]
-    public float alignedAngularDeadZone = 0.05f;
+    public float alignedAngularDeadZone = 0.035f;
+    [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的横向速度幅度 |a_x| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
+    public float alignedLateralPenalty = 1.5f;
+    [Tooltip("在【稳定对齐】时，允许的横向速度输出死区：|a_x| 小于此值不惩罚，用于保留微小修正动作")]
+    [Range(0f, 0.5f)]
+    public float alignedLateralDeadZone = 0.05f;
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -115,7 +126,7 @@ public class MyCarAgent : Agent
     private int derailmentCount = 0;  // 脱轨次数计数器
 
     [Header("Stable Tracking")]
-    public float stableAlignedTime = 1.0f;     // 稳定对齐时间阈值（秒）
+    public float stableAlignedTime = 0.3f;     // 稳定对齐时间阈值（秒）
     private float alignedTimer = 0f;           // 对齐状态计时器
     private bool isStableAligned = false;      // 是否处于稳定对齐状态
     
@@ -135,7 +146,7 @@ public class MyCarAgent : Agent
     
     [Header("Output Smoothing")]
     [Range(0f, 1f)]
-    public float smoothingAlpha = 0.3f;  // 指数平滑系数（0=完全平滑，1=无平滑）。建议0.2-0.4
+    public float smoothingAlpha = 0.4f;  // 指数平滑系数（0=完全平滑，1=无平滑）。建议0.2-0.4
     private float smoothedLateralSpeed = 0f;   // 平滑后的横向速度
     private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
 
@@ -588,18 +599,23 @@ public class MyCarAgent : Agent
         else
         {
             // 速度 < 15%预设速度：轻度惩罚而非直接-1（允许转弯减速）
-            return -1.0f;
+            return -2.0f;
         }
-        
+
+
         // ========== 3. 平稳性奖励（扩展到所有状态，不仅仅对齐状态） ==========
         // 计算输出平稳性：奖励变化小的输出，抑制频繁的方向改变
         float lateralDelta = Mathf.Abs(prevLateralSpeed - outputVx) / Mathf.Max(0.001f, maxLateralSpeed);
         float angularDelta = Mathf.Abs(prevAngularSpeed - outputOmega) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
         
+        // 应用配平系数：使 vx 和 omega 对车轮转角的影响等效
+        // 配平后的横向变化量：lateralDelta_equivalent = lateralDelta * lateralAngularEquivalenceFactor
+        float lateralDelta_equivalent = lateralDelta * lateralAngularEquivalenceFactor;
+        
         // 平稳性指标：变化越小越好（指数衰减）
         // 对自转速度应用权重，使其变化更显著地影响平稳度评分
         // 例如：angularSmoothnessWeight=2.0 时，角速度变化的影响翻倍
-        float weightedDelta = lateralDelta + (angularDelta * angularSmoothnessWeight);
+        float weightedDelta = lateralDelta_equivalent + (angularDelta * angularSmoothnessWeight);
         float smoothness = Mathf.Exp(-weightedDelta * 2f);  // *2f 使衰减更陡峭
         
         // 在稳定对齐状态使用强化的平稳性奖励
@@ -610,22 +626,19 @@ public class MyCarAgent : Agent
         // 当 smoothness=0.37（e^-1）时：reward ≈ 0
         float smoothnessReward = (smoothness - 0.37f) * appliedSmoothnessBonus;  // 中立点在 e^-1 ≈ 0.37
         
-        // ========== 4. 稳定对齐状态下的小输出奖励 ==========
+        // ========== 4. 小输出奖励（已移除）==========
+        // 【已移除】小输出奖励已被直线角速度惩罚替代，因为：
+        // 1. 目标更明确：专门针对角速度抖动问题
+        // 2. 死区更合理：允许微小修正（0.05），避免过度约束
+        // 3. 惩罚更有效：负向信号能更快抑制不良行为
         float outputBonus = 0f;
-        if (isStableAligned)
-        {
-            // 计算动作幅度（0-1范围）
-            float actionMagnitude = Mathf.Sqrt(a_x * a_x + a_w * a_w) / Mathf.Sqrt(2f);
-            // 动作越小，奖励越高（鼓励平稳跟随）
-            outputBonus = (1f - actionMagnitude) * smallOutputBonus;
-        }
 
         // ========== 5. 转弯鼓励奖励：在转弯时（非对齐状态）奖励坚持转弯 ==========
         float turningReward = 0f;
-        if (!isAligned)  // 只在非对齐模式（转弯阶段）启用
+        if (enableTurningReward && !isAligned)  // 只在启用开关且非对齐模式（转弯阶段）启用
         {
             float angularMagnitude = Mathf.Abs(a_w);  // 角速度幅度 (0-1)
-            if (angularMagnitude > turningThreshold)  // 使用参数化阈值（默认0.5）
+            if (angularMagnitude > turningThreshold)  // 使用参数化阈值（默认0.3）
             {
                 // 转弯幅度越大，奖励越多，但不超过 turningBonus
                 // 目的：鼓励智能体坚持转弯而不是频繁改变方向
@@ -633,32 +646,38 @@ public class MyCarAgent : Agent
             }
         }
 
-        // ========== 6. 对齐直线阶段的角速度输出惩罚（只在稳定对齐时生效） ==========
-        float straightAngularPenalty = 0f;
+        // ========== 6. 对齐直线阶段的输出限制（只在稳定对齐时生效）==========
+        float straightOutputPenalty = 0f;
         if (isStableAligned)
         {
-            // 使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
+            // 6.1 角速度惩罚：使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
             float absAw = Mathf.Abs(a_w);
-            // 死区：允许 |a_w| 在一定范围内做微小修正，不惩罚
-            float excess = Mathf.Max(0f, absAw - alignedAngularDeadZone);
-            if (excess > 0f && alignedAngularPenalty > 0f)
+            float angularExcess = Mathf.Max(0f, absAw - alignedAngularDeadZone);
+            if (angularExcess > 0f && alignedAngularPenalty > 0f)
             {
                 // 线性惩罚：|a_w| 超出死区越多，惩罚越大
-                straightAngularPenalty = -alignedAngularPenalty * excess;
+                straightOutputPenalty -= alignedAngularPenalty * angularExcess;
+            }
+            
+            // 6.2 横向速度惩罚：使用网络原始输出 a_x（-1~1）
+            float absAx = Mathf.Abs(a_x);
+            float lateralExcess = Mathf.Max(0f, absAx - alignedLateralDeadZone);
+            if (lateralExcess > 0f && alignedLateralPenalty > 0f)
+            {
+                // 线性惩罚：|a_x| 超出死区越多，惩罚越大
+                straightOutputPenalty -= alignedLateralPenalty * lateralExcess;
             }
         }
 
         // ========== 7. 最终奖励 ==========
         // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
         // + 平稳性奖励：鼓励稳定输出，抑制频繁震荡
-        // + 小输出奖励：稳定对齐时鼓励精细控制
         // + 转弯奖励：转弯时鼓励坚持而不是改变
-        // + 直线角速度惩罚：在稳定直线时强烈抑制大的自转输出
+        // + 直线输出限制：在稳定直线时抑制大的横向速度和角速度输出
         return alignmentReward * speedCoefficient
                + smoothnessReward
-               + outputBonus
                + turningReward
-               + straightAngularPenalty;
+               + straightOutputPenalty;
     }
 
     // ========== 数据收集方法 ==========

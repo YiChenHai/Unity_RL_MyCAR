@@ -493,27 +493,31 @@ MonoBehaviour:
   maxField: 8
   maxEpisodeTime: 200
   alignedThresholdPercent: 0.1
-  centerThresholdPercent: 0.6
+  centerThresholdPercent: 0.65
   alignedBonus: 0.5
   speedHighPercent: 0.6
   speedLowPercent: 0.2
   speedPenalty: -0.2
+  smoothnessBonus: 1
+  stableSmoothnessBonus: 2
+  angularSmoothnessWeight: 1
   smallOutputBonus: 1.5
+  lateralAngularEquivalenceFactor: 0.562
+  enableTurningReward: 0
   turningBonus: 0.5
   turningThreshold: 0.5
-  smoothnessBonus: 2
-  stableSmoothnessBonus: 3
-  angularSmoothnessWeight: 3
   derailPenalty: -10
-  warningUpperThresholdPercent: 0.28
+  warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  alignedAngularPenalty: 2
+  alignedAngularPenalty: 1.5
   alignedAngularDeadZone: 0.035
+  alignedLateralPenalty: 1.5
+  alignedLateralDeadZone: 0.05
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.3
-  smoothingAlpha: 0.3
+  smoothingAlpha: 0.4
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: 0, y: 0.15, z: 4.5}
