@@ -28,7 +28,7 @@ public class MyCar_Motion : MonoBehaviour
     public float manualVz = 0f;
     [Tooltip("横向速度（Unity X轴，右为正），单位 m/s")]
     public float manualVx = 0f;
-    [Tooltip("自转角速度，单位 rad/s")]
+    [Tooltip("自转角速度，单位 deg/s")]
     public float manualOmega = 0f;
 
     [Header("Kinematic scaling & deadzone")]
@@ -135,7 +135,8 @@ public class MyCar_Motion : MonoBehaviour
         {
             vz = manualVz * inputScaleVz;
             vx = manualVx * inputScaleVx;
-            omega = -manualOmega * inputScaleOmega;
+            // manualOmega 单位为度/秒，需要转换为弧度/秒
+            omega = -(manualOmega * Mathf.Deg2Rad) * inputScaleOmega;
         }
 
         ComputeKinematics(vz, vx, omega);

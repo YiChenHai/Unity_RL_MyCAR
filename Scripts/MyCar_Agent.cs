@@ -53,28 +53,52 @@ public class MyCarAgent : Agent
     public float maxEpisodeTime = 40f;
     private float episodeTimer = 0f;
 
-    [Header("Reward Params")]
-    public float alignedThresholdPercent = 0.15f;  // 对齐状态：左右差值阈值（15%，放宽）
-    public float centerThresholdPercent = 0.45f;   // 对齐状态：中心传感器阈值（45%，放宽支持转弯）
-    public float alignedBonus = 0.5f;              // 对齐状态的额外奖励
-    public float speedHighPercent = 0.45f;         // 速度比例系数为1的阈值（45%）
-    public float speedLowPercent = 0.10f;          // 速度惩罚阈值（10%，放宽以允许转弯减速）
-    public float speedPenalty = -0.2f;             // 速度过低时的惩罚值（-0.5→-0.2，缓和）
-    public float smallOutputBonus = 1.0f;          // 小输出奖励系数（稳定对齐时的精细控制激励）
-    public float turningBonus = 0.3f;              // 转弯鼓励奖励幅度（避免过度激励）
-    public float turningThreshold = 0.3f;          // 触发转弯奖励的角速度阈值（0.3，容易触发）
-    public float smoothnessBonus = 1.0f;           // 输出平稳性奖励幅度（转弯时）
-    public float stableSmoothnessBonus = 4.0f;     // 稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）
-    [Range(0f, 5f)]
-    public float angularSmoothnessWeight = 4.0f;   // 自转速度平稳性权重（越大越强调自转平稳）
-    [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
-    public float derailPenalty = -15.0f;  // 增强脱轨惩罚，从-8增加到-10
-    [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
-    public float warningUpperThresholdPercent = 0.25f;  // 25%上限
-    [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
-    public float warningPenaltyCoefficient = -3.0f;  // 预警惩罚系数，从-1.0增加到-3.0
+    // ========== 奖励参数配置（按奖励项分组） ==========
+    
+    [Header("1. 基础对齐奖励 (Alignment Reward)")]
+    [Tooltip("对齐状态：左右差值阈值（15%，放宽）")]
+    public float alignedThresholdPercent = 0.15f;
+    [Tooltip("对齐状态：中心传感器阈值（45%，放宽支持转弯）")]
+    public float centerThresholdPercent = 0.45f;
+    [Tooltip("对齐状态的额外奖励")]
+    public float alignedBonus = 0.5f;
 
-    [Header("Aligned Straight Tracking Constraints")]
+    [Header("2. 速度系数 (Speed Coefficient)")]
+    [Tooltip("速度比例系数为1的阈值（45%）")]
+    public float speedHighPercent = 0.45f;
+    [Tooltip("速度惩罚阈值（10%，放宽以允许转弯减速）")]
+    public float speedLowPercent = 0.10f;
+    [Tooltip("速度过低时的惩罚值（-0.5→-0.2，缓和）")]
+    public float speedPenalty = -0.2f;
+
+    [Header("3. 平稳性奖励 (Smoothness Reward)")]
+    [Tooltip("输出平稳性奖励幅度（转弯时）")]
+    public float smoothnessBonus = 1.0f;
+    [Tooltip("稳定对齐时的平稳性奖励幅度（强化版，鼓励极度平稳）")]
+    public float stableSmoothnessBonus = 4.0f;
+    [Tooltip("自转速度平稳性权重（越大越强调自转平稳）")]
+    [Range(0f, 5f)]
+    public float angularSmoothnessWeight = 4.0f;
+
+    [Header("4. 小输出奖励 (Small Output Bonus)")]
+    [Tooltip("小输出奖励系数（稳定对齐时的精细控制激励）")]
+    public float smallOutputBonus = 1.0f;
+
+    [Header("5. 转弯奖励 (Turning Reward)")]
+    [Tooltip("转弯鼓励奖励幅度（避免过度激励）")]
+    public float turningBonus = 0.3f;
+    [Tooltip("触发转弯奖励的角速度阈值（0.3，容易触发）")]
+    public float turningThreshold = 0.3f;
+
+    [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
+    [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
+    public float derailPenalty = -15.0f;
+    [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
+    public float warningUpperThresholdPercent = 0.25f;
+    [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
+    public float warningPenaltyCoefficient = -3.0f;
+
+    [Header("7. 直线角速度惩罚 (Straight Angular Penalty)")]
     [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的角速度幅度 |a_w| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
     public float alignedAngularPenalty = 1.5f;
     [Tooltip("在【稳定对齐】时，允许的角速度输出死区：|a_w| 小于此值不惩罚，用于保留微小修正动作")]
