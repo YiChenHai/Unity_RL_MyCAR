@@ -23,6 +23,18 @@ public class MyCar_StateDisplay : MonoBehaviour
     public int curveHistoryLength = 200;  // 曲线历史数据点数
     public Vector2 curveAreaPosition = new Vector2(520, 10);
     public Vector2 curveAreaSize = new Vector2(400, 250);
+    
+    [Header("Reward Display Settings")]
+    [Tooltip("是否显示奖励信息")]
+    public bool showRewardInfo = true;
+    [Tooltip("奖励信息显示位置")]
+    public Vector2 rewardDisplayPosition = new Vector2(10, 570);
+    [Tooltip("奖励信息显示大小")]
+    public Vector2 rewardDisplaySize = new Vector2(500, 200);
+    [Tooltip("奖励曲线显示位置")]
+    public Vector2 rewardCurvePosition = new Vector2(520, 270);
+    [Tooltip("奖励曲线显示大小")]
+    public Vector2 rewardCurveSize = new Vector2(400, 200);
 
     private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
     private static Texture2D _cyanTexture; // 青色图例颜色块
@@ -282,6 +294,13 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             DrawOutputCurves();
         }
+        
+        // ========== 绘制奖励信息 ==========
+        if (showRewardInfo && myCarAgent != null && myCarAgent.enableRewardTracking)
+        {
+            DrawRewardComponents();
+            DrawRewardCurve();
+        }
     }
 
     /// <summary>
@@ -503,6 +522,181 @@ public class MyCar_StateDisplay : MonoBehaviour
         GL.End();
         
         GL.PopMatrix();
+    }
+
+    /// <summary>
+    /// 绘制奖励组成部分的详细信息
+    /// </summary>
+    void DrawRewardComponents()
+    {
+        Rect rewardRect = new Rect(rewardDisplayPosition.x, rewardDisplayPosition.y, rewardDisplaySize.x, rewardDisplaySize.y);
+        GUI.DrawTexture(rewardRect, _bgTexture);
+        GUI.Box(rewardRect, "Reward Components");
+        GUILayout.BeginArea(new Rect(rewardRect.x + 10, rewardRect.y + 25, rewardRect.width - 20, rewardRect.height - 35));
+
+        MyCarAgent.RewardComponents components = myCarAgent.CurrentRewardComponents;
+        float cumulativeReward = myCarAgent.CumulativeReward;
+
+        GUIStyle titleStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = cumulativeReward >= 0 ? Color.green : Color.red }
+        };
+        GUILayout.Label($"累计奖励: {cumulativeReward:F3}", titleStyle);
+        GUILayout.Space(5);
+
+        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white }
+        };
+
+        float alignmentSpeedReward = components.alignmentReward * components.speedCoefficient;
+        Color alignmentColor = alignmentSpeedReward >= 0 ? Color.green : Color.red;
+        labelStyle.normal.textColor = alignmentColor;
+        GUILayout.Label($"1. 对齐奖励×速度系数: {alignmentSpeedReward:F4} (对齐={components.alignmentReward:F3} × 速度={components.speedCoefficient:F3})", 
+            labelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        labelStyle.normal.textColor = components.smoothnessReward >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"2. 平稳性奖励: {components.smoothnessReward:F4}", 
+            labelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        labelStyle.normal.textColor = components.turningReward >= 0 ? Color.green : Color.yellow;
+        GUILayout.Label($"3. 转弯奖励: {components.turningReward:F4}", 
+            labelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4}", 
+            labelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        GUILayout.Space(5);
+        
+        GUIStyle totalStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.cyan }
+        };
+        GUILayout.Label($"总奖励(×dt前): {components.totalReward:F4}", totalStyle, GUILayout.Width(rewardRect.width - 20));
+        totalStyle.normal.textColor = components.rewardThisFrame >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"本帧奖励(×dt后): {components.rewardThisFrame:F4}", totalStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        GUILayout.EndArea();
+    }
+
+    /// <summary>
+    /// 绘制奖励曲线
+    /// </summary>
+    void DrawRewardCurve()
+    {
+        Rect curveRect = new Rect(rewardCurvePosition.x, rewardCurvePosition.y, rewardCurveSize.x, rewardCurveSize.y);
+        
+        // 绘制背景
+        GUI.DrawTexture(curveRect, _bgTexture);
+        GUI.Box(curveRect, "Reward History");
+        
+        // 内部绘制区域
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, curveRect.height - 35);
+        
+        // 获取奖励历史数据
+        float[] rewardHistory = myCarAgent.RewardHistory;
+        int historyLength = myCarAgent.RewardHistoryLength;
+        int historyIndex = myCarAgent.RewardHistoryIndex;
+        
+        if (rewardHistory == null || historyLength == 0) return;
+        
+        // 计算Y轴范围（动态缩放）
+        float minReward = float.MaxValue;
+        float maxReward = float.MinValue;
+        for (int i = 0; i < historyLength; i++)
+        {
+            float val = rewardHistory[i];
+            if (val < minReward) minReward = val;
+            if (val > maxReward) maxReward = val;
+        }
+        
+        // 如果所有值都相同，设置一个默认范围
+        if (Mathf.Approximately(minReward, maxReward))
+        {
+            minReward = minReward - 0.1f;
+            maxReward = maxReward + 0.1f;
+        }
+        
+        // 添加一些边距
+        float range = maxReward - minReward;
+        minReward -= range * 0.1f;
+        maxReward += range * 0.1f;
+        
+        // 绘制网格和0线
+        DrawRewardGrid(innerRect, minReward, maxReward);
+        
+        // 绘制奖励曲线
+        DrawRewardCurveLine(innerRect, rewardHistory, historyLength, historyIndex, minReward, maxReward);
+        
+        // 显示Y轴范围
+        GUIStyle rangeStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray }
+        };
+        GUI.Label(new Rect(innerRect.x, innerRect.yMax + 5, innerRect.width, 20), 
+            $"Range: [{minReward:F2}, {maxReward:F2}]", rangeStyle);
+    }
+    
+    void DrawRewardGrid(Rect graphRect, float minVal, float maxVal)
+    {
+        // 绘制0线
+        float zeroY = Mathf.Lerp(graphRect.yMax, graphRect.y, 
+            (0f - minVal) / (maxVal - minVal));
+        zeroY = Mathf.Clamp(zeroY, graphRect.y, graphRect.yMax);
+        DrawLine(new Vector2(graphRect.x, zeroY), new Vector2(graphRect.xMax, zeroY), Color.gray);
+        
+        // 绘制Y轴标签
+        float[] labelValues = { maxVal, (maxVal + minVal) / 2f, minVal };
+        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray },
+            alignment = TextAnchor.MiddleRight
+        };
+        
+        foreach (float val in labelValues)
+        {
+            float screenY = Mathf.Lerp(graphRect.yMax, graphRect.y, (val - minVal) / (maxVal - minVal));
+            screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
+            Rect labelRect = new Rect(graphRect.x - 50, screenY - 10, 45, 20);
+            GUI.Label(labelRect, val.ToString("F2"), labelStyle);
+        }
+    }
+    
+    void DrawRewardCurveLine(Rect graphRect, float[] data, int length, int startIndex, float minVal, float maxVal)
+    {
+        if (data == null || length < 2) return;
+        
+        Color rewardColor = Color.yellow;
+        
+        for (int i = 0; i < length - 1; i++)
+        {
+            int idx1 = (startIndex + i) % length;
+            int idx2 = (startIndex + i + 1) % length;
+            
+            float value1 = data[idx1];
+            float value2 = data[idx2];
+            
+            float screenX1 = graphRect.x + (i / (float)(length - 1)) * graphRect.width;
+            float screenX2 = graphRect.x + ((i + 1) / (float)(length - 1)) * graphRect.width;
+            
+            float screenY1 = Mathf.Lerp(graphRect.yMax, graphRect.y, (value1 - minVal) / (maxVal - minVal));
+            float screenY2 = Mathf.Lerp(graphRect.yMax, graphRect.y, (value2 - minVal) / (maxVal - minVal));
+            
+            screenY1 = Mathf.Clamp(screenY1, graphRect.y, graphRect.yMax);
+            screenY2 = Mathf.Clamp(screenY2, graphRect.y, graphRect.yMax);
+            
+            // 根据奖励值正负选择颜色
+            Color lineColor = value1 >= 0 ? Color.green : Color.red;
+            DrawLine(new Vector2(screenX1, screenY1), new Vector2(screenX2, screenY2), lineColor);
+        }
     }
 
     private void OnDestroy()

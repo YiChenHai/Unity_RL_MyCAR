@@ -116,6 +116,34 @@ public class MyCarAgent : Agent
     [Range(0f, 0.5f)]
     public float alignedLateralDeadZone = 0.05f;
 
+    [Header("Reward Tracking (for Display)")]
+    [Tooltip("是否启用奖励跟踪（用于UI显示）")]
+    public bool enableRewardTracking = true;
+    private float cumulativeReward = 0f;  // 累计奖励
+    private float[] rewardHistory;  // 奖励历史记录（用于绘制曲线）
+    private int rewardHistoryIndex = 0;  // 奖励历史索引
+    private int rewardHistoryLength = 200;  // 奖励历史长度
+    
+    // 奖励组成部分（用于详细显示）
+    public struct RewardComponents
+    {
+        public float alignmentReward;      // 对齐奖励
+        public float speedCoefficient;      // 速度系数
+        public float smoothnessReward;     // 平稳性奖励
+        public float turningReward;        // 转弯奖励
+        public float straightOutputPenalty; // 直线输出限制惩罚
+        public float totalReward;          // 总奖励（乘以dt前）
+        public float rewardThisFrame;      // 本帧奖励（乘以dt后）
+    }
+    private RewardComponents currentRewardComponents;  // 当前奖励组成部分
+    
+    // 公开接口供外部访问
+    public float CumulativeReward => cumulativeReward;
+    public float[] RewardHistory => rewardHistory;
+    public int RewardHistoryLength => rewardHistoryLength;
+    public int RewardHistoryIndex => rewardHistoryIndex;
+    public RewardComponents CurrentRewardComponents => currentRewardComponents;
+
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
     [Tooltip("是否启用脱轨日志记录（记录到文件）")]
@@ -215,6 +243,12 @@ public class MyCarAgent : Agent
         {
             ApplyScriptDefaults();
         }
+        
+        // 初始化奖励历史数组
+        if (enableRewardTracking && rewardHistory == null)
+        {
+            rewardHistory = new float[rewardHistoryLength];
+        }
     }
 
     // Unity 编辑器回调：当 Inspector 字段被修改、脚本重载、或勾选/取消勾选开关时会触发。
@@ -302,6 +336,17 @@ public class MyCarAgent : Agent
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
         lastRawLateralAction = 0f;  // 初始化原始动作
         lastRawAngularAction = 0f;  // 初始化原始动作
+        
+        // 重置奖励跟踪
+        if (enableRewardTracking)
+        {
+            cumulativeReward = 0f;
+            rewardHistoryIndex = 0;
+            if (rewardHistory != null)
+            {
+                System.Array.Clear(rewardHistory, 0, rewardHistory.Length);
+            }
+        }
         
         // ========== 数据收集：回合结束处理 ==========
         // 检查上一回合是否因脱轨终止（在OnEpisodeBegin时，上一回合已结束）
@@ -474,6 +519,29 @@ public class MyCarAgent : Agent
             // 中心传感器低于18% → 立即脱轨，无时间缓冲
             AddReward(derailPenalty);
             
+            // 记录脱轨惩罚（用于显示）
+            if (enableRewardTracking)
+            {
+                // 设置脱轨惩罚的奖励组成部分
+                currentRewardComponents = new RewardComponents
+                {
+                    alignmentReward = 0f,
+                    speedCoefficient = 0f,
+                    smoothnessReward = 0f,
+                    turningReward = 0f,
+                    straightOutputPenalty = 0f,
+                    totalReward = derailPenalty,
+                    rewardThisFrame = derailPenalty
+                };
+                
+                cumulativeReward += derailPenalty;
+                if (rewardHistory != null)
+                {
+                    rewardHistory[rewardHistoryIndex] = derailPenalty;
+                    rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
+                }
+            }
+            
             // ========== 标记为脱轨终止 ==========
             episodeEndedByDerailment = true;
             
@@ -497,6 +565,17 @@ public class MyCarAgent : Agent
             float warningPenalty = warningPenaltyCoefficient * dangerRatio * Time.fixedDeltaTime;
             AddReward(warningPenalty);
             
+            // 记录预警惩罚（用于显示）
+            if (enableRewardTracking)
+            {
+                cumulativeReward += warningPenalty;
+                if (rewardHistory != null)
+                {
+                    rewardHistory[rewardHistoryIndex] = warningPenalty;
+                    rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
+                }
+            }
+            
             if (enableDebugLog)
             {
                 Debug.Log($"[Warning] 预警区域！minCenter={minCenter:F4} ({minCenter/maxField*100:F1}%), dangerRatio={dangerRatio:F3}, penalty={warningPenalty:F4}");
@@ -506,7 +585,22 @@ public class MyCarAgent : Agent
 
         // ========== 计算奖励 ==========
         float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_x, a_w, outputVx, outputOmega);
-        AddReward(reward * Time.fixedDeltaTime);
+        float rewardThisFrame = reward * Time.fixedDeltaTime;
+        AddReward(rewardThisFrame);
+        
+        // 记录奖励（用于显示）
+        if (enableRewardTracking)
+        {
+            // 更新奖励组成部分中的本帧奖励值
+            currentRewardComponents.rewardThisFrame = rewardThisFrame;
+            
+            cumulativeReward += rewardThisFrame;
+            if (rewardHistory != null)
+            {
+                rewardHistory[rewardHistoryIndex] = rewardThisFrame;
+                rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
+            }
+        }
 
         // ========== 终止条件2：超时 ==========
         episodeTimer += Time.fixedDeltaTime;
@@ -598,7 +692,21 @@ public class MyCarAgent : Agent
         }
         else
         {
-            // 速度 < 15%预设速度：轻度惩罚而非直接-1（允许转弯减速）
+            // 速度 < 20%预设速度：返回-2.0（允许转弯减速）
+            // 保存速度过低的奖励组成部分
+            if (enableRewardTracking)
+            {
+                currentRewardComponents = new RewardComponents
+                {
+                    alignmentReward = 0f,
+                    speedCoefficient = 0f,
+                    smoothnessReward = 0f,
+                    turningReward = 0f,
+                    straightOutputPenalty = 0f,
+                    totalReward = -2.0f,
+                    rewardThisFrame = -2.0f * Time.fixedDeltaTime
+                };
+            }
             return -2.0f;
         }
 
@@ -674,10 +782,27 @@ public class MyCarAgent : Agent
         // + 平稳性奖励：鼓励稳定输出，抑制频繁震荡
         // + 转弯奖励：转弯时鼓励坚持而不是改变
         // + 直线输出限制：在稳定直线时抑制大的横向速度和角速度输出
-        return alignmentReward * speedCoefficient
-               + smoothnessReward
-               + turningReward
-               + straightOutputPenalty;
+        float totalReward = alignmentReward * speedCoefficient
+                           + smoothnessReward
+                           + turningReward
+                           + straightOutputPenalty;
+        
+        // 保存奖励组成部分（用于详细显示）
+        if (enableRewardTracking)
+        {
+            currentRewardComponents = new RewardComponents
+            {
+                alignmentReward = alignmentReward,
+                speedCoefficient = speedCoefficient,
+                smoothnessReward = smoothnessReward,
+                turningReward = turningReward,
+                straightOutputPenalty = straightOutputPenalty,
+                totalReward = totalReward,
+                rewardThisFrame = 0f  // 将在调用处设置
+            };
+        }
+        
+        return totalReward;
     }
 
     // ========== 数据收集方法 ==========

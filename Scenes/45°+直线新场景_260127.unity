@@ -431,7 +431,7 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 661f22f8843f0a44e91bb6215a4b4163, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 69ce01d49b75b1b4890b4312d98bb9e0, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
   m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
@@ -509,10 +509,11 @@ MonoBehaviour:
   derailPenalty: -10
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  alignedAngularPenalty: 1.5
+  alignedAngularPenalty: 2.5
   alignedAngularDeadZone: 0.035
-  alignedLateralPenalty: 1.5
+  alignedLateralPenalty: 2.5
   alignedLateralDeadZone: 0.05
+  enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
@@ -560,6 +561,11 @@ MonoBehaviour:
   curveHistoryLength: 200
   curveAreaPosition: {x: 520, y: 10}
   curveAreaSize: {x: 400, y: 250}
+  showRewardInfo: 0
+  rewardDisplayPosition: {x: 10, y: 570}
+  rewardDisplaySize: {x: 500, y: 200}
+  rewardCurvePosition: {x: 520, y: 270}
+  rewardCurveSize: {x: 400, y: 200}
 --- !u!114 &714007410
 MonoBehaviour:
   m_ObjectHideFlags: 0
