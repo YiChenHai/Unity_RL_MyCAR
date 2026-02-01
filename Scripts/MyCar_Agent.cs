@@ -110,11 +110,17 @@ public class MyCarAgent : Agent
     [Tooltip("在【稳定对齐】时，允许的角速度输出死区：|a_w| 小于此值不惩罚，用于保留微小修正动作")]
     [Range(0f, 0.5f)]
     public float alignedAngularDeadZone = 0.035f;
+    [Tooltip("在【稳定对齐】时，角速度输出达到最大值惩罚的阈值：|a_w| 达到此值时惩罚达到最大值，超过此值惩罚不再增加")]
+    [Range(0f, 1f)]
+    public float alignedAngularMaxPenaltyThreshold = 0.3f;
     [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的横向速度幅度 |a_x| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
     public float alignedLateralPenalty = 1.5f;
     [Tooltip("在【稳定对齐】时，允许的横向速度输出死区：|a_x| 小于此值不惩罚，用于保留微小修正动作")]
     [Range(0f, 0.5f)]
     public float alignedLateralDeadZone = 0.05f;
+    [Tooltip("在【稳定对齐】时，横向速度输出达到最大值惩罚的阈值：|a_x| 达到此值时惩罚达到最大值，超过此值惩罚不再增加")]
+    [Range(0f, 1f)]
+    public float alignedLateralMaxPenaltyThreshold = 0.3f;
 
     [Header("Reward Tracking (for Display)")]
     [Tooltip("是否启用奖励跟踪（用于UI显示）")]
@@ -760,20 +766,32 @@ public class MyCarAgent : Agent
         {
             // 6.1 角速度惩罚：使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
             float absAw = Mathf.Abs(a_w);
-            float angularExcess = Mathf.Max(0f, absAw - alignedAngularDeadZone);
-            if (angularExcess > 0f && alignedAngularPenalty > 0f)
+            if (absAw > alignedAngularDeadZone && alignedAngularPenalty > 0f)
             {
-                // 线性惩罚：|a_w| 超出死区越多，惩罚越大
-                straightOutputPenalty -= alignedAngularPenalty * angularExcess;
+                // 计算超出死区的部分
+                float angularExcess = absAw - alignedAngularDeadZone;
+                // 计算死区到最大值阈值之间的范围
+                float maxPenaltyRange = Mathf.Max(0.001f, alignedAngularMaxPenaltyThreshold - alignedAngularDeadZone);
+                
+                // 如果超出最大值阈值，使用最大惩罚值；否则线性插值
+                float normalizedExcess = Mathf.Clamp01(angularExcess / maxPenaltyRange);
+                float maxPenaltyValue = alignedAngularPenalty * maxPenaltyRange;
+                straightOutputPenalty -= maxPenaltyValue * normalizedExcess;
             }
             
             // 6.2 横向速度惩罚：使用网络原始输出 a_x（-1~1）
             float absAx = Mathf.Abs(a_x);
-            float lateralExcess = Mathf.Max(0f, absAx - alignedLateralDeadZone);
-            if (lateralExcess > 0f && alignedLateralPenalty > 0f)
+            if (absAx > alignedLateralDeadZone && alignedLateralPenalty > 0f)
             {
-                // 线性惩罚：|a_x| 超出死区越多，惩罚越大
-                straightOutputPenalty -= alignedLateralPenalty * lateralExcess;
+                // 计算超出死区的部分
+                float lateralExcess = absAx - alignedLateralDeadZone;
+                // 计算死区到最大值阈值之间的范围
+                float maxPenaltyRange = Mathf.Max(0.001f, alignedLateralMaxPenaltyThreshold - alignedLateralDeadZone);
+                
+                // 如果超出最大值阈值，使用最大惩罚值；否则线性插值
+                float normalizedExcess = Mathf.Clamp01(lateralExcess / maxPenaltyRange);
+                float maxPenaltyValue = alignedLateralPenalty * maxPenaltyRange;
+                straightOutputPenalty -= maxPenaltyValue * normalizedExcess;
             }
         }
 

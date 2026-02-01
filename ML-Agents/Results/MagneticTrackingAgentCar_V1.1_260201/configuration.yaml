@@ -38,14 +38,14 @@ behaviors:
     init_path: null
     keep_checkpoints: 5
     even_checkpoints: false
-    max_steps: 18000000
+    max_steps: 13000000
     time_horizon: 512
     summary_freq: 5000
     threaded: false
     self_play: null
     behavioral_cloning: null
 env_settings:
-  env_path: D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Output/MagneticTrackingAgentCar_V1.0_260131
+  env_path: D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Output/MagneticTrackingAgentCar_V1.0_260201
   env_args: null
   base_port: 5005
   num_envs: 4
@@ -66,7 +66,7 @@ engine_settings:
   no_graphics_monitor: false
 environment_parameters: null
 checkpoint_settings:
-  run_id: MagneticTrackingAgentCar_V1.1_260130
+  run_id: MagneticTrackingAgentCar_V1.1_260201
   initialize_from: null
   load_model: false
   resume: true
