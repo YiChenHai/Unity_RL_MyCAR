@@ -138,6 +138,7 @@ public class MyCarAgent : Agent
         public float smoothnessReward;     // 平稳性奖励
         public float turningReward;        // 转弯奖励
         public float straightOutputPenalty; // 直线输出限制惩罚
+        public float straightOutputPenaltyPercent; // 直线输出惩罚百分比（0-100%）
         public float totalReward;          // 总奖励（乘以dt前）
         public float rewardThisFrame;      // 本帧奖励（乘以dt后）
     }
@@ -536,6 +537,7 @@ public class MyCarAgent : Agent
                     smoothnessReward = 0f,
                     turningReward = 0f,
                     straightOutputPenalty = 0f,
+                    straightOutputPenaltyPercent = 0f,
                     totalReward = derailPenalty,
                     rewardThisFrame = derailPenalty
                 };
@@ -709,6 +711,7 @@ public class MyCarAgent : Agent
                     smoothnessReward = 0f,
                     turningReward = 0f,
                     straightOutputPenalty = 0f,
+                    straightOutputPenaltyPercent = 0f,
                     totalReward = -2.0f,
                     rewardThisFrame = -2.0f * Time.fixedDeltaTime
                 };
@@ -761,38 +764,66 @@ public class MyCarAgent : Agent
         }
 
         // ========== 6. 对齐直线阶段的输出限制（只在稳定对齐时生效）==========
+        // 惩罚计算说明：
+        // - 死区内（输出 < 死区值）：无惩罚（0%）
+        // - 死区到最大值阈值之间：线性惩罚（0% → 100%）
+        // - 超过最大值阈值：达到最大惩罚值（100%）
+        // 
+        // 惩罚计算公式：
+        //   惩罚值 = Penalty × (输出值 - 死区) / (最大值阈值 - 死区)
+        //   百分比 = (输出值 - 死区) / (最大值阈值 - 死区) × 100%
+        // 
+        // 当输出值 = 最大值阈值时，惩罚值 = Penalty，百分比 = 100%
+        // 当输出值 = 死区时，惩罚值 = 0，百分比 = 0%
+        // 
+        // 默认参数下的最大惩罚值（当输出达到最大值阈值时）：
+        //   角速度：alignedAngularPenalty = 1.5
+        //   横向速度：alignedLateralPenalty = 1.5
         float straightOutputPenalty = 0f;
+        float straightOutputPenaltyPercent = 0f;  // 惩罚百分比（0-100%）
         if (isStableAligned)
         {
+            float angularPenaltyPercent = 0f;
+            float lateralPenaltyPercent = 0f;
+            
             // 6.1 角速度惩罚：使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
             float absAw = Mathf.Abs(a_w);
             if (absAw > alignedAngularDeadZone && alignedAngularPenalty > 0f)
             {
-                // 计算超出死区的部分
-                float angularExcess = absAw - alignedAngularDeadZone;
                 // 计算死区到最大值阈值之间的范围
-                float maxPenaltyRange = Mathf.Max(0.001f, alignedAngularMaxPenaltyThreshold - alignedAngularDeadZone);
+                float penaltyRange = Mathf.Max(0.001f, alignedAngularMaxPenaltyThreshold - alignedAngularDeadZone);
                 
-                // 如果超出最大值阈值，使用最大惩罚值；否则线性插值
-                float normalizedExcess = Mathf.Clamp01(angularExcess / maxPenaltyRange);
-                float maxPenaltyValue = alignedAngularPenalty * maxPenaltyRange;
-                straightOutputPenalty -= maxPenaltyValue * normalizedExcess;
+                // 计算比例：(输出值 - 死区) / (最大值阈值 - 死区)
+                float ratio = Mathf.Clamp01((absAw - alignedAngularDeadZone) / penaltyRange);
+                
+                // 惩罚值 = Penalty × 比例
+                float penaltyValue = alignedAngularPenalty * ratio;
+                straightOutputPenalty -= penaltyValue;
+                
+                // 计算角速度惩罚百分比（0-100%）
+                angularPenaltyPercent = ratio * 100f;
             }
             
             // 6.2 横向速度惩罚：使用网络原始输出 a_x（-1~1）
             float absAx = Mathf.Abs(a_x);
             if (absAx > alignedLateralDeadZone && alignedLateralPenalty > 0f)
             {
-                // 计算超出死区的部分
-                float lateralExcess = absAx - alignedLateralDeadZone;
                 // 计算死区到最大值阈值之间的范围
-                float maxPenaltyRange = Mathf.Max(0.001f, alignedLateralMaxPenaltyThreshold - alignedLateralDeadZone);
+                float penaltyRange = Mathf.Max(0.001f, alignedLateralMaxPenaltyThreshold - alignedLateralDeadZone);
                 
-                // 如果超出最大值阈值，使用最大惩罚值；否则线性插值
-                float normalizedExcess = Mathf.Clamp01(lateralExcess / maxPenaltyRange);
-                float maxPenaltyValue = alignedLateralPenalty * maxPenaltyRange;
-                straightOutputPenalty -= maxPenaltyValue * normalizedExcess;
+                // 计算比例：(输出值 - 死区) / (最大值阈值 - 死区)
+                float ratio = Mathf.Clamp01((absAx - alignedLateralDeadZone) / penaltyRange);
+                
+                // 惩罚值 = Penalty × 比例
+                float penaltyValue = alignedLateralPenalty * ratio;
+                straightOutputPenalty -= penaltyValue;
+                
+                // 计算横向速度惩罚百分比（0-100%）
+                lateralPenaltyPercent = ratio * 100f;
             }
+            
+            // 惩罚百分比取两者中的较大值（因为惩罚是两者相加的）
+            straightOutputPenaltyPercent = Mathf.Max(angularPenaltyPercent, lateralPenaltyPercent);
         }
 
         // ========== 7. 最终奖励 ==========
@@ -815,6 +846,7 @@ public class MyCarAgent : Agent
                 smoothnessReward = smoothnessReward,
                 turningReward = turningReward,
                 straightOutputPenalty = straightOutputPenalty,
+                straightOutputPenaltyPercent = straightOutputPenaltyPercent,
                 totalReward = totalReward,
                 rewardThisFrame = 0f  // 将在调用处设置
             };

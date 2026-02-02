@@ -17,7 +17,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     public bool showDebugInfo = true;
     public bool showOutputCurves = true;  // 显示输出曲线开关
     public Vector2 displayPosition = new Vector2(10, 10);
-    public Vector2 displaySize = new Vector2(500, 550);
+    public Vector2 displaySize = new Vector2(500, 560);
     
     [Header("Curve Display Settings")]
     public int curveHistoryLength = 200;  // 曲线历史数据点数
@@ -30,7 +30,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     [Tooltip("奖励信息显示位置")]
     public Vector2 rewardDisplayPosition = new Vector2(10, 570);
     [Tooltip("奖励信息显示大小")]
-    public Vector2 rewardDisplaySize = new Vector2(500, 200);
+    public Vector2 rewardDisplaySize = new Vector2(500, 240);
     [Tooltip("奖励曲线显示位置")]
     public Vector2 rewardCurvePosition = new Vector2(520, 270);
     [Tooltip("奖励曲线显示大小")]
@@ -567,8 +567,27 @@ public class MyCar_StateDisplay : MonoBehaviour
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
         labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4}", 
+        // 显示惩罚百分比，根据百分比设置颜色（0%绿色，100%红色）
+        Color penaltyPercentColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
+        labelStyle.normal.textColor = penaltyPercentColor;
+        
+        // 计算最大惩罚值（用于显示）
+        // 当输出达到最大值阈值时，比例=1，惩罚值=Penalty×1=Penalty
+        float maxAngularPenalty = myCarAgent.alignedAngularPenalty;
+        float maxLateralPenalty = myCarAgent.alignedLateralPenalty;
+        float maxTotalPenalty = maxAngularPenalty + maxLateralPenalty;
+        
+        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        // 显示最大惩罚值信息（小字体，灰色）
+        GUIStyle infoStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray }
+        };
+        GUILayout.Label($"   最大惩罚值: 角速度={maxAngularPenalty:F4}, 横向速度={maxLateralPenalty:F4}, 合计={maxTotalPenalty:F4}", 
+            infoStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.Space(5);
         
