@@ -17,7 +17,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     public bool showDebugInfo = true;
     public bool showOutputCurves = true;  // 显示输出曲线开关
     public Vector2 displayPosition = new Vector2(10, 10);
-    public Vector2 displaySize = new Vector2(500, 560);
+    public Vector2 displaySize = new Vector2(500, 650);
     
     [Header("Curve Display Settings")]
     public int curveHistoryLength = 200;  // 曲线历史数据点数
@@ -280,6 +280,76 @@ public class MyCar_StateDisplay : MonoBehaviour
                 detailStyle.normal.textColor = centerStrong ? Color.green : Color.gray;
                 GUILayout.Label($"  中心强度: {(centerStrong ? "✓" : "✗")} (前={sensorValues[1]:F2}>{centerThreshold:F2}, 后={sensorValues[4]:F2}>{centerThreshold:F2})", 
                     detailStyle, GUILayout.Width(displaySize.x - 20));
+            }
+            
+            // ========== 显示当前智能体输出状态 ==========
+            GUILayout.Space(5);
+            GUIStyle actionStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 13,
+                fontStyle = FontStyle.Bold
+            };
+            
+            int currentAction = myCarAgent.CurrentDiscreteAction;
+            int previousAction = myCarAgent.PreviousDiscreteAction;
+            
+            // 获取动作名称
+            string GetActionName(int actionIndex)
+            {
+                switch (actionIndex)
+                {
+                    case 0: return "急左转";
+                    case 1: return "左转";
+                    case 2: return "微调左";
+                    case 3: return "前进";
+                    case 4: return "微调右";
+                    case 5: return "右转";
+                    case 6: return "急右转";
+                    default: return "未知";
+                }
+            }
+            
+            // 根据动作类型设置颜色
+            Color GetActionColor(int actionIndex)
+            {
+                switch (actionIndex)
+                {
+                    case 0: return new Color(1f, 0.3f, 0.3f);  // 急左转 - 红色
+                    case 1: return new Color(1f, 0.6f, 0.3f);  // 左转 - 橙红色
+                    case 2: return new Color(0.5f, 0.8f, 1f);  // 微调左 - 浅蓝色
+                    case 3: return Color.green;                 // 前进 - 绿色
+                    case 4: return new Color(0.5f, 0.8f, 1f);  // 微调右 - 浅蓝色
+                    case 5: return new Color(1f, 0.6f, 0.3f); // 右转 - 橙红色
+                    case 6: return new Color(1f, 0.3f, 0.3f);  // 急右转 - 红色
+                    default: return Color.gray;
+                }
+            }
+            
+            actionStyle.normal.textColor = GetActionColor(currentAction);
+            GUILayout.Label($"当前动作: [{currentAction}] {GetActionName(currentAction)}", 
+                actionStyle, GUILayout.Width(displaySize.x - 20));
+            
+            // 显示动作变化
+            if (currentAction != previousAction)
+            {
+                GUIStyle changeStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 11,
+                    normal = { textColor = Color.yellow }
+                };
+                int actionDiff = Mathf.Abs(currentAction - previousAction);
+                GUILayout.Label($"  变化: [{previousAction}] {GetActionName(previousAction)} → [{currentAction}] {GetActionName(currentAction)} (差值={actionDiff})", 
+                    changeStyle, GUILayout.Width(displaySize.x - 20));
+            }
+            else
+            {
+                GUIStyle stableStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 11,
+                    normal = { textColor = Color.gray }
+                };
+                GUILayout.Label($"  状态: 动作保持不变", 
+                    stableStyle, GUILayout.Width(displaySize.x - 20));
             }
         }
         else
@@ -572,10 +642,10 @@ public class MyCar_StateDisplay : MonoBehaviour
         labelStyle.normal.textColor = penaltyPercentColor;
         
         // 计算最大惩罚值（用于显示）
-        // 当输出达到最大值阈值时，比例=1，惩罚值=Penalty×1=Penalty
-        float maxAngularPenalty = myCarAgent.alignedAngularPenalty;
-        float maxLateralPenalty = myCarAgent.alignedLateralPenalty;
-        float maxTotalPenalty = maxAngularPenalty + maxLateralPenalty;
+        // 新的惩罚逻辑：基于动作类型，急转最剧烈，普通转弯次之
+        float basePenalty = myCarAgent.alignedActionPenalty;
+        float maxSharpTurnPenalty = basePenalty * myCarAgent.sharpTurnPenaltyMultiplier;
+        float maxNormalTurnPenalty = basePenalty * myCarAgent.normalTurnPenaltyMultiplier;
         
         GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
@@ -586,7 +656,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             fontSize = 10,
             normal = { textColor = Color.gray }
         };
-        GUILayout.Label($"   最大惩罚值: 角速度={maxAngularPenalty:F4}, 横向速度={maxLateralPenalty:F4}, 合计={maxTotalPenalty:F4}", 
+        GUILayout.Label($"   最大惩罚值: 急转={maxSharpTurnPenalty:F4}, 普通转弯={maxNormalTurnPenalty:F4}, 基础={basePenalty:F4}", 
             infoStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.Space(5);
