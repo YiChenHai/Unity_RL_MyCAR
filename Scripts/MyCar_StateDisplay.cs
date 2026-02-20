@@ -24,6 +24,14 @@ public class MyCar_StateDisplay : MonoBehaviour
     public Vector2 curveAreaPosition = new Vector2(520, 10);
     public Vector2 curveAreaSize = new Vector2(400, 250);
     
+    [Header("Action Index Display Settings")]
+    [Tooltip("是否显示动作索引折线图")]
+    public bool showActionIndexCurve = true;
+    [Tooltip("动作索引曲线显示位置")]
+    public Vector2 actionCurvePosition = new Vector2(930, 10);
+    [Tooltip("动作索引曲线显示大小")]
+    public Vector2 actionCurveSize = new Vector2(400, 250);
+    
     [Header("Reward Display Settings")]
     [Tooltip("是否显示奖励信息")]
     public bool showRewardInfo = true;
@@ -44,6 +52,10 @@ public class MyCar_StateDisplay : MonoBehaviour
     private float[] _lateralSpeedHistory;
     private float[] _angularSpeedHistory;
     private int _historyIndex = 0;
+    
+    // 动作索引历史记录
+    private int[] _actionIndexHistory;
+    private int _actionHistoryIndex = 0;
 
     void Start()
     {
@@ -60,6 +72,9 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 初始化曲线缓冲区
         _lateralSpeedHistory = new float[curveHistoryLength];
         _angularSpeedHistory = new float[curveHistoryLength];
+        
+        // 初始化动作索引历史记录
+        _actionIndexHistory = new int[curveHistoryLength];
         
         // 初始化图例颜色纹理
         if (_cyanTexture == null)
@@ -299,12 +314,16 @@ public class MyCar_StateDisplay : MonoBehaviour
                 switch (actionIndex)
                 {
                     case 0: return "急左转";
-                    case 1: return "左转";
-                    case 2: return "微调左";
-                    case 3: return "前进";
-                    case 4: return "微调右";
-                    case 5: return "右转";
-                    case 6: return "急右转";
+                    case 1: return "大左转";
+                    case 2: return "左转";
+                    case 3: return "小左转";
+                    case 4: return "微左转";
+                    case 5: return "直行";
+                    case 6: return "微右转";
+                    case 7: return "小右转";
+                    case 8: return "右转";
+                    case 9: return "大右转";
+                    case 10: return "急右转";
                     default: return "未知";
                 }
             }
@@ -314,13 +333,17 @@ public class MyCar_StateDisplay : MonoBehaviour
             {
                 switch (actionIndex)
                 {
-                    case 0: return new Color(1f, 0.3f, 0.3f);  // 急左转 - 红色
-                    case 1: return new Color(1f, 0.6f, 0.3f);  // 左转 - 橙红色
-                    case 2: return new Color(0.5f, 0.8f, 1f);  // 微调左 - 浅蓝色
-                    case 3: return Color.green;                 // 前进 - 绿色
-                    case 4: return new Color(0.5f, 0.8f, 1f);  // 微调右 - 浅蓝色
-                    case 5: return new Color(1f, 0.6f, 0.3f); // 右转 - 橙红色
-                    case 6: return new Color(1f, 0.3f, 0.3f);  // 急右转 - 红色
+                    case 0: return new Color(1f, 0.2f, 0.2f);  // 急左转 - 深红色
+                    case 1: return new Color(1f, 0.4f, 0.2f);  // 大左转 - 红色
+                    case 2: return new Color(1f, 0.6f, 0.3f);  // 左转 - 橙红色
+                    case 3: return new Color(1f, 0.8f, 0.5f);  // 小左转 - 浅橙红色
+                    case 4: return new Color(0.5f, 0.8f, 1f);  // 微左转 - 浅蓝色
+                    case 5: return Color.green;                 // 直行 - 绿色
+                    case 6: return new Color(0.5f, 0.8f, 1f);  // 微右转 - 浅蓝色
+                    case 7: return new Color(1f, 0.8f, 0.5f);  // 小右转 - 浅橙红色
+                    case 8: return new Color(1f, 0.6f, 0.3f);  // 右转 - 橙红色
+                    case 9: return new Color(1f, 0.4f, 0.2f);  // 大右转 - 红色
+                    case 10: return new Color(1f, 0.2f, 0.2f);  // 急右转 - 深红色
                     default: return Color.gray;
                 }
             }
@@ -365,11 +388,28 @@ public class MyCar_StateDisplay : MonoBehaviour
             DrawOutputCurves();
         }
         
+        // ========== 绘制动作索引折线图 ==========
+        if (showActionIndexCurve && myCarAgent != null)
+        {
+            DrawActionIndexCurve();
+        }
+        
         // ========== 绘制奖励信息 ==========
         if (showRewardInfo && myCarAgent != null && myCarAgent.enableRewardTracking)
         {
             DrawRewardComponents();
             DrawRewardCurve();
+        }
+    }
+    
+    void Update()
+    {
+        // 记录当前动作索引到历史记录
+        if (myCarAgent != null && _actionIndexHistory != null)
+        {
+            int currentAction = myCarAgent.CurrentDiscreteAction;
+            _actionIndexHistory[_actionHistoryIndex] = currentAction;
+            _actionHistoryIndex = (_actionHistoryIndex + 1) % curveHistoryLength;
         }
     }
 
@@ -756,6 +796,117 @@ public class MyCar_StateDisplay : MonoBehaviour
             screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
             Rect labelRect = new Rect(graphRect.x - 50, screenY - 10, 45, 20);
             GUI.Label(labelRect, val.ToString("F2"), labelStyle);
+        }
+    }
+    
+    /// <summary>
+    /// 绘制动作索引折线图
+    /// </summary>
+    void DrawActionIndexCurve()
+    {
+        Rect curveRect = new Rect(actionCurvePosition.x, actionCurvePosition.y, actionCurveSize.x, actionCurveSize.y);
+        
+        // 绘制背景
+        GUI.DrawTexture(curveRect, _bgTexture);
+        
+        // 绘制边框
+        GUI.Box(curveRect, "Action Index History");
+        
+        // 内部绘制区域（留出边距）
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, curveRect.height - 35);
+        
+        // 绘制网格和曲线
+        DrawActionIndexGraph(innerRect);
+    }
+    
+    void DrawActionIndexGraph(Rect graphRect)
+    {
+        if (_actionIndexHistory == null || _actionIndexHistory.Length < 2) return;
+        
+        // 动作索引范围：0-10
+        float minVal = 0f;
+        float maxVal = 10f;
+        
+        // 绘制网格
+        DrawActionIndexGrid(graphRect, minVal, maxVal);
+        
+        // 绘制动作索引折线
+        DrawActionIndexLine(graphRect, _actionIndexHistory, curveHistoryLength, _actionHistoryIndex, minVal, maxVal);
+        
+        // 显示当前动作索引值
+        if (myCarAgent != null)
+        {
+            int currentAction = myCarAgent.CurrentDiscreteAction;
+            GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 11,
+                normal = { textColor = Color.white }
+            };
+            GUI.Label(new Rect(graphRect.x, graphRect.yMax + 5, graphRect.width, 20), 
+                $"当前动作索引: {currentAction}", labelStyle);
+        }
+    }
+    
+    void DrawActionIndexGrid(Rect graphRect, float minVal, float maxVal)
+    {
+        // 绘制Y轴标签（0, 2, 4, 6, 8, 10）
+        float[] labelValues = { 10f, 8f, 6f, 4f, 2f, 0f };
+        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray },
+            alignment = TextAnchor.MiddleRight
+        };
+        
+        foreach (float val in labelValues)
+        {
+            float screenY = Mathf.Lerp(graphRect.yMax, graphRect.y, (val - minVal) / (maxVal - minVal));
+            screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
+            Rect labelRect = new Rect(graphRect.x - 35, screenY - 10, 30, 20);
+            GUI.Label(labelRect, val.ToString("F0"), labelStyle);
+        }
+        
+        // 绘制中心线（索引5，即Forward）
+        float centerY = Mathf.Lerp(graphRect.yMax, graphRect.y, (5f - minVal) / (maxVal - minVal));
+        centerY = Mathf.Clamp(centerY, graphRect.y, graphRect.yMax);
+        DrawLine(new Vector2(graphRect.x, centerY), new Vector2(graphRect.xMax, centerY), 
+            new Color(0.5f, 0.5f, 0.5f, 0.5f));
+        
+        // 绘制网格线（每2个索引一条）
+        for (int i = 0; i <= 10; i += 2)
+        {
+            if (i == 5) continue; // 跳过中心线
+            float gridY = Mathf.Lerp(graphRect.yMax, graphRect.y, (i - minVal) / (maxVal - minVal));
+            gridY = Mathf.Clamp(gridY, graphRect.y, graphRect.yMax);
+            Color gridColor = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+            DrawLine(new Vector2(graphRect.x, gridY), new Vector2(graphRect.xMax, gridY), gridColor);
+        }
+    }
+    
+    void DrawActionIndexLine(Rect graphRect, int[] data, int length, int startIndex, float minVal, float maxVal)
+    {
+        if (data == null || length < 2) return;
+        
+        Color actionColor = Color.cyan;
+        
+        for (int i = 0; i < length - 1; i++)
+        {
+            int idx1 = (startIndex + i) % length;
+            int idx2 = (startIndex + i + 1) % length;
+            
+            float value1 = data[idx1];
+            float value2 = data[idx2];
+            
+            float screenX1 = graphRect.x + (i / (float)(length - 1)) * graphRect.width;
+            float screenX2 = graphRect.x + ((i + 1) / (float)(length - 1)) * graphRect.width;
+            
+            float screenY1 = Mathf.Lerp(graphRect.yMax, graphRect.y, (value1 - minVal) / (maxVal - minVal));
+            float screenY2 = Mathf.Lerp(graphRect.yMax, graphRect.y, (value2 - minVal) / (maxVal - minVal));
+            
+            screenY1 = Mathf.Clamp(screenY1, graphRect.y, graphRect.yMax);
+            screenY2 = Mathf.Clamp(screenY2, graphRect.y, graphRect.yMax);
+            
+            DrawLine(new Vector2(screenX1, screenY1), new Vector2(screenX2, screenY2), actionColor);
         }
     }
     
