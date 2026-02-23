@@ -816,7 +816,7 @@ public class MyCarAgent : Agent
                 
             case DiscreteAction.TurnLeftSmall:
                 // 小左转：vx=0, omega=+小转固定值
-                a_x = 0f;
+                a_x = 0f; 
                 a_w = turnSmallAngularValue;
                 break;
                 
