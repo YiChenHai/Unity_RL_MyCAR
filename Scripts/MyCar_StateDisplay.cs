@@ -15,6 +15,8 @@ public class MyCar_StateDisplay : MonoBehaviour
 
     [Header("Display Settings")]
     public bool showDebugInfo = true;
+    [Tooltip("训练时自动禁用UI显示（提升性能，避免Unity窗口卡顿）")]
+    public bool autoDisableInTraining = true;  // 训练时自动禁用UI
     public bool showOutputCurves = true;  // 显示输出曲线开关
     public Vector2 displayPosition = new Vector2(10, 10);
     public Vector2 displaySize = new Vector2(500, 650);
@@ -93,6 +95,16 @@ public class MyCar_StateDisplay : MonoBehaviour
 
     void OnGUI()
     {
+        // 训练时自动禁用UI（避免Unity窗口卡顿）
+        if (autoDisableInTraining)
+        {
+            // 检查是否处于训练模式（ML-Agents训练时，Academy会存在）
+            if (Unity.MLAgents.Academy.Instance != null && Unity.MLAgents.Academy.Instance.IsCommunicatorOn)
+            {
+                return;  // 训练模式下禁用UI显示
+            }
+        }
+        
         if (!showDebugInfo) return;
 
         // 调试：检查 myCarMotion 是否为空

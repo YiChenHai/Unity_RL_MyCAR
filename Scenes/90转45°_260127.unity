@@ -422,19 +422,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 13
+    VectorObservationSize: 10
     NumStackedVectorObservations: 1
     m_ActionSpec:
-      m_NumContinuousActions: 2
-      BranchSizes: 
-    VectorActionSize: 02000000
+      m_NumContinuousActions: 0
+      BranchSizes: 0b000000
+    VectorActionSize: 0b000000
     VectorActionDescriptions: []
-    VectorActionSpaceType: 1
+    VectorActionSpaceType: 0
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 8bd435693ff67ad45bf07b121975d149, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 3856e18be69ca9141b0f44ac7e123e81, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Lisan_260218
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -475,6 +475,8 @@ MonoBehaviour:
   recordDerailmentEpisodes: 1
   enableMaxSamplesLimit: 1
   maxDataSamples: 300000
+  maxBufferSize: 20000
+  batchWriteSize: 10000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
   tape: {fileID: 1462255779}
@@ -490,6 +492,12 @@ MonoBehaviour:
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.2
   maxOmegaDeg: 80
+  useDiscreteActions: 1
+  turnSharpAngularValue: 0.5625
+  turnLargeAngularValue: 0.4375
+  turnAngularValue: 0.25
+  turnSmallAngularValue: 0.125
+  turnMicroAngularValue: 0.0625
   maxField: 8
   maxEpisodeTime: 200
   alignedThresholdPercent: 0.1
@@ -498,18 +506,34 @@ MonoBehaviour:
   speedHighPercent: 0.6
   speedLowPercent: 0.2
   speedPenalty: -0.2
+  diff0Reward: 0.3
+  diff1Reward: 0.15
+  diff2Reward: 0
+  diff3Penalty: -0.15
+  diff4Penalty: -0.3
+  diff5Penalty: -0.45
+  diff6Penalty: -0.6
+  diff7Penalty: -0.75
+  diff8Penalty: -0.85
+  diff9Penalty: -0.95
+  diff10Penalty: -1
   smallOutputBonus: 0.5
+  lateralAngularEquivalenceFactor: 0.562
+  enableTurningReward: 0
   turningBonus: 0.5
   turningThreshold: 0.5
-  smoothnessBonus: 1
-  stableSmoothnessBonus: 4
-  angularSmoothnessWeight: 2
   derailPenalty: -10
   warningUpperThresholdPercent: 0.25
   warningPenaltyCoefficient: -3
+  alignedActionPenalty: 1.5
+  forwardReward: 0.2
+  sharpTurnPenaltyMultiplier: 2
+  normalTurnPenaltyMultiplier: 1.5
+  enableRewardTracking: 1
   enableDebugLog: 1
   enableDerailmentLogging: 1
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
+  derailmentLogBufferSize: 50
   stableAlignedTime: 0.3
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0, z: 0, w: 1}
@@ -548,12 +572,21 @@ MonoBehaviour:
   - {fileID: 1550834400}
   - {fileID: 1240964160}
   showDebugInfo: 1
+  autoDisableInTraining: 1
   showOutputCurves: 0
   displayPosition: {x: 10, y: 10}
   displaySize: {x: 480, y: 550}
   curveHistoryLength: 200
   curveAreaPosition: {x: 520, y: 10}
   curveAreaSize: {x: 400, y: 250}
+  showActionIndexCurve: 1
+  actionCurvePosition: {x: 930, y: 10}
+  actionCurveSize: {x: 400, y: 250}
+  showRewardInfo: 1
+  rewardDisplayPosition: {x: 10, y: 570}
+  rewardDisplaySize: {x: 500, y: 240}
+  rewardCurvePosition: {x: 520, y: 270}
+  rewardCurveSize: {x: 400, y: 200}
 --- !u!114 &714007410
 MonoBehaviour:
   m_ObjectHideFlags: 0

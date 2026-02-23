@@ -30,14 +30,20 @@ public class MyCarAgent : Agent
 {
     [Header("Data Collection for Distillation")]
     public bool enableDataCollection = false;  // 启用数据收集模式
-    [Tooltip("是否记录脱轨终止的回合数据\nfalse=不记录脱轨终止的回合（推荐，避免学习错误行为）\ntrue=记录所有回合，包括脱轨终止的回合")]
+    [Tooltip("是否记录脱轨终止的回合数据. false=不记录(推荐), true=记录所有回合")]
     public bool recordDerailmentEpisodes = false;  // 是否记录脱轨终止的回合
     [Tooltip("是否启用记录条数限制")]
     public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
-    [Tooltip("目标采集数量（仅在启用限制时有效）\n到达目标后停止写入")]
+    [Tooltip("目标采集数量(仅在启用限制时有效). 到达目标后停止写入")]
     [Range(1, 1000000)]
     public int maxDataSamples = 300000;         // 最大记录条数
-    [Tooltip("CSV文件保存文件夹路径（留空则使用默认路径）\n例如: D:/Data/ 或 D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Data_Record/\n留空时使用: Application.persistentDataPath\n文件会自动以日期命名：training_data_yyyyMMdd_HHmmss.csv")]
+    [Tooltip("内存缓冲区最大容量(防止内存溢出). 超过此数量时自动分批写入文件. 建议值: 10000-50000")]
+    [Range(1000, 100000)]
+    public int maxBufferSize = 20000;          // 内存缓冲区最大容量
+    [Tooltip("批量写入大小(每次写入的数据条数). 建议值: 5000-20000,过大可能导致写入阻塞")]
+    [Range(1000, 50000)]
+    public int batchWriteSize = 10000;         // 批量写入大小
+    [Tooltip("CSV文件保存文件夹路径. 留空则使用默认路径Application.persistentDataPath. 文件会自动以日期命名training_data_yyyyMMdd_HHmmss.csv")]
     public string customSavePath = "";         // 用户指定的保存文件夹路径
     private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
     private int episodeDataCount = 0;          // 当前回合收集的数据数量
@@ -47,7 +53,7 @@ public class MyCarAgent : Agent
     private bool episodeEndedByDerailment = false;  // 标记当前回合是否因脱轨终止
     
     [Header("Config Priority")]
-    [Tooltip("勾选: 使用Unity Inspector(场景/Prefab序列化)中的值。\n不勾选: 运行时与编辑器中将被脚本默认值覆盖(以代码为准)。")]
+    [Tooltip("勾选: 使用Unity Inspector中的值. 不勾选: 运行时将被脚本默认值覆盖")]
     // 参数优先级开关：
     // - true  : 以 Inspector(序列化) 为准（方便在 Unity 中调参）
     // - false : 以代码默认值为准（强制覆盖 Inspector，避免旧序列化值干扰）
@@ -66,16 +72,16 @@ public class MyCarAgent : Agent
     public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
     
     [Header("Discrete Action Space (扩展版: 11个动作)")]
-    [Tooltip("【已强制启用】使用离散动作空间（11个动作）\n\n【重要】必须在BehaviorParameters中配置：\n- Space Size: 1\n- Branch 0 Size: 11\n- Continuous Actions: 0\n- Vector Observation Size: 10")]
+    [Tooltip("已强制启用离散动作空间(11个动作). 必须在BehaviorParameters中配置: Space Size=1, Branch 0 Size=11, Continuous Actions=0, Vector Observation Size=10")]
     [System.Obsolete("此参数已废弃，系统强制使用离散动作空间")]
     public bool useDiscreteActions = true;  // 已强制启用离散动作空间
-    [Tooltip("急左转/急右转的角速度值（归一化，-1~1）\n例如：0.5625 表示使用最大角速度的56.25%")]
+    [Tooltip("急左转/急右转的角速度值(归一化-1~1). 例如0.5625表示使用最大角速度的56.25%")]
     [Range(0f, 1f)]
     public float turnSharpAngularValue = 0.5625f;  // 急转弯的角速度值
     [Tooltip("大左转/大右转的角速度值（归一化，-1~1）")]
     [Range(0f, 1f)]
     public float turnLargeAngularValue = 0.4375f;  // 大转弯的角速度值
-    [Tooltip("普通左转/右转的角速度值（归一化，-1~1）\n例如：0.25 表示使用最大角速度的25%")]
+    [Tooltip("普通左转/右转的角速度值(归一化-1~1). 例如0.25表示使用最大角速度的25%")]
     [Range(0f, 1f)]
     public float turnAngularValue = 0.25f;  // 普通转弯的角速度值
     [Tooltip("小左转/小右转的角速度值（归一化，-1~1）")]
@@ -95,28 +101,28 @@ public class MyCarAgent : Agent
     // ========== 奖励参数配置（按奖励项分组） ==========
     
     [Header("1. 基础对齐奖励 (Alignment Reward)")]
-    [Tooltip("对齐状态：左右差值阈值（15%，放宽）")]
+    [Tooltip("对齐状态左右差值阈值(15%放宽)")]
     public float alignedThresholdPercent = 0.1f;
-    [Tooltip("对齐状态：中心传感器阈值（45%，放宽支持转弯）")]
+    [Tooltip("对齐状态中心传感器阈值(45%放宽支持转弯)")]
     public float centerThresholdPercent = 0.65f;
     [Tooltip("对齐状态的额外奖励")]
     public float alignedBonus = 0.5f;
 
     [Header("2. 速度系数 (Speed Coefficient)")]
-    [Tooltip("速度比例系数为1的阈值（60%）\n当速度 >= 此阈值时，速度系数 = 1.0（全额奖励）")]
+    [Tooltip("速度比例系数为1的阈值(60%). 当速度>=此阈值时,速度系数=1.0(全额奖励)")]
     public float speedHighPercent = 0.6f;
-    [Tooltip("速度惩罚阈值（20%）\n当速度 < 此阈值时，直接返回 -2.0（大惩罚，终止奖励计算）\n当速度在此阈值和speedHighPercent之间时，速度系数线性插值（0 → 1）")]
+    [Tooltip("速度惩罚阈值(20%). 速度<此阈值时返回-2.0(大惩罚). 在此阈值和speedHighPercent之间时线性插值")]
     public float speedLowPercent = 0.20f;
     [Tooltip("已删除: 速度过低时的惩罚值，不再使用")]
     [System.Obsolete("此参数已删除")]
     public float speedPenalty = -0.2f;
 
     [Header("3. 平稳性奖励 (Smoothness Reward)")]
-    [Tooltip("每个动作索引差值对应的奖励/惩罚值\n差值=|当前动作索引 - 上一动作索引|\n差值0-2：奖励值（差值越小奖励越大）\n差值3-10：惩罚值（差值越大惩罚越大）\n\n差值0的奖励值（动作保持不变）")]
+    [Tooltip("动作索引差值0的奖励值(动作保持不变). 差值0-2为奖励值,差值3-10为惩罚值")]
     public float diff0Reward = 0.3f;
-    [Tooltip("差值1的奖励值（相邻动作切换）")]
+    [Tooltip("差值1的奖励值(相邻动作切换)")]
     public float diff1Reward = 0.15f;
-    [Tooltip("差值2的奖励值（界限值，奖励为0）")]
+    [Tooltip("差值2的奖励值(界限值奖励为0)")]
     public float diff2Reward = 0f;
     [Tooltip("差值3的惩罚值")]
     public float diff3Penalty = -0.15f;
@@ -132,7 +138,7 @@ public class MyCarAgent : Agent
     public float diff8Penalty = -0.85f;
     [Tooltip("差值9的惩罚值")]
     public float diff9Penalty = -0.95f;
-    [Tooltip("差值10的惩罚值（最大差值）")]
+    [Tooltip("差值10的惩罚值(最大差值)")]
     public float diff10Penalty = -1.0f;
 
     [Header("4. 小输出奖励 (Small Output Bonus) - [已删除]")]
@@ -156,25 +162,25 @@ public class MyCarAgent : Agent
     public float turningThreshold = 0.3f;
 
     [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
-    [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
+    [Tooltip("脱轨惩罚(负数),脱轨时立即终止回合")]
     public float derailPenalty = -15.0f;
-    [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
+    [Tooltip("预警区域上限(25%,超过此值不惩罚不奖励)")]
     public float warningUpperThresholdPercent = 0.3f;
-    [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
+    [Tooltip("预警惩罚系数(每帧,18%~25%之间的线性惩罚)")]
     public float warningPenaltyCoefficient = -4.0f;
 
     [Header("7. 直线输出限制 (Straight Output Constraints)")]
-    [Tooltip("在对齐条件下，输出微转和直行以外的动作时的惩罚权重\n允许的动作：TurnLeftMicro(4), Forward(5), TurnRightMicro(6)\n不允许的动作：其他所有转弯动作")]
+    [Tooltip("对齐条件下输出微转和直行以外动作时的惩罚权重. 允许动作: TurnLeftMicro(4), Forward(5), TurnRightMicro(6)")]
     public float alignedActionPenalty = 1.5f;
-    [Tooltip("在对齐条件下，输出Forward(直行)动作时的奖励值\n微调动作不奖励也不惩罚，直行动作给予小奖励")]
+    [Tooltip("对齐条件下输出Forward(直行)动作时的奖励值. 微调动作不奖励也不惩罚,直行动作给予小奖励")]
     public float forwardReward = 0.2f;
-    [Tooltip("急转动作的惩罚倍数（TurnLeftSharp/TurnRightSharp，索引0/10）")]
+    [Tooltip("急转动作的惩罚倍数(TurnLeftSharp/TurnRightSharp索引0/10)")]
     public float sharpTurnPenaltyMultiplier = 2.0f;
-    [Tooltip("普通转弯动作的惩罚倍数（TurnLeft/TurnRight，索引2/8）")]
+    [Tooltip("普通转弯动作的惩罚倍数(TurnLeft/TurnRight索引2/8)")]
     public float normalTurnPenaltyMultiplier = 1.5f;
 
     [Header("Reward Tracking (for Display)")]
-    [Tooltip("是否启用奖励跟踪（用于UI显示）")]
+    [Tooltip("是否启用奖励跟踪(用于UI显示)")]
     public bool enableRewardTracking = true;
     private float cumulativeReward = 0f;  // 累计奖励
     private float[] rewardHistory;  // 奖励历史记录（用于绘制曲线）
@@ -204,12 +210,16 @@ public class MyCarAgent : Agent
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
-    [Tooltip("是否启用脱轨日志记录（记录到文件）")]
+    [Tooltip("是否启用脱轨日志记录(记录到文件)")]
     public bool enableDerailmentLogging = true;  // 脱轨日志开关
-    [Tooltip("脱轨日志文件保存路径（留空则使用默认路径）")]
+    [Tooltip("脱轨日志文件保存路径(留空则使用默认路径)")]
     public string derailmentLogPath = "";  // 脱轨日志文件路径
+    [Tooltip("脱轨日志缓冲大小(达到此数量时批量写入). 建议值: 10-100,避免频繁写入")]
+    [Range(1, 500)]
+    public int derailmentLogBufferSize = 50;  // 脱轨日志缓冲大小
     private string derailmentLogFilePath = null;  // 实际使用的日志文件路径
     private int derailmentCount = 0;  // 脱轨次数计数器
+    private List<string> derailmentLogBuffer = new List<string>();  // 脱轨日志缓冲
 
     [Header("Stable Tracking")]
     public float stableAlignedTime = 0.3f;     // 稳定对齐时间阈值（秒）
@@ -251,7 +261,7 @@ public class MyCarAgent : Agent
     { 
         new Vector3(0f, 0.15f, 1f)
     };
-    [Tooltip("对应的Y旋转角度数组（与spawnPositions保持相同长度）")]
+    [Tooltip("对应的Y旋转角度数组(与spawnPositions保持相同长度)")]
     public float[] spawnYawAngles = new float[] 
     { 
         0f 
@@ -503,6 +513,12 @@ public class MyCarAgent : Agent
         // 清理内存中的数据，准备新回合
         collectedData.Clear();
         episodeDataCount = 0;
+        
+        // ========== 刷新脱轨日志缓冲（确保所有数据都被写入） ==========
+        if (enableDerailmentLogging && derailmentLogBuffer.Count > 0)
+        {
+            FlushDerailmentLog();
+        }
         
         // 重置脱轨标志
         episodeEndedByDerailment = false;
@@ -1121,16 +1137,31 @@ public class MyCarAgent : Agent
         observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 9: 实际横向速度
         observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 10: 实际角速度
 
-        // 构建CSV行：obs[0-9],action[0]（离散动作索引）
+        // 构建CSV行：10维特征 + 1维目标（离散动作索引）
+        // 格式：sensor0,sensor1,sensor2,sensor3,sensor4,sensor5,last_action_state,actual_vz,actual_vx,actual_omega,discrete_action
         StringBuilder sb = new StringBuilder();
-        foreach (float obs in observations)
+        
+        // 写入10维特征（浮点数，保留6位小数）
+        for (int i = 0; i < observations.Count; i++)
         {
-            sb.Append(obs.ToString("F6"));
-            sb.Append(",");
+            sb.Append(observations[i].ToString("F6"));
+            if (i < observations.Count - 1)
+            {
+                sb.Append(",");
+            }
         }
-        sb.Append(discreteAction.ToString());  // 记录离散动作索引（0-6）
+        
+        // 写入目标：离散动作索引（整数，0-10）
+        sb.Append(",");
+        sb.Append(discreteAction.ToString());
         
         collectedData.Add(sb.ToString());
+        
+        // 内存保护：如果缓冲区超过最大容量，自动分批写入
+        if (collectedData.Count >= maxBufferSize)
+        {
+            FlushDataBuffer();
+        }
     }
 
     // 获取保存目录路径（如果用户指定了路径则使用，否则使用默认路径）
@@ -1164,37 +1195,48 @@ public class MyCarAgent : Agent
         return Path.Combine(directory, fileName);
     }
 
-    // 追加回合数据到文件（每回合模式使用）
-    private void AppendEpisodeDataToFile()
+    // 初始化数据文件（如果尚未初始化）
+    private void InitializeDataFileIfNeeded()
+    {
+        if (episodeDataFilePath != null)
+        {
+            return;  // 已初始化
+        }
+
+        // 使用日期命名：training_data_yyyyMMdd_HHmmss.csv
+        string fileName = $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        episodeDataFilePath = GetFullFilePath(fileName);
+        
+        episodeDataHeaderWritten = false;
+        
+        // 确保目录存在
+        string directory = GetSaveDirectory();
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
+                episodeDataFilePath = null;
+            }
+        }
+    }
+
+    // 刷新数据缓冲区（分批写入，防止内存溢出和I/O阻塞）
+    private void FlushDataBuffer()
     {
         if (collectedData.Count == 0)
         {
             return;
         }
 
-        // 首次写入时，初始化文件路径并写入头部
+        InitializeDataFileIfNeeded();
         if (episodeDataFilePath == null)
         {
-            // 使用日期命名：training_data_yyyyMMdd_HHmmss.csv
-            string fileName = $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-            episodeDataFilePath = GetFullFilePath(fileName);
-            
-            episodeDataHeaderWritten = false;
-            
-            // 确保目录存在
-            string directory = GetSaveDirectory();
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                try
-                {
-                    Directory.CreateDirectory(directory);
-                }
-                catch (System.Exception e)
-                {
-                    Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
-                    return;
-                }
-            }
+            return;
         }
 
         try
@@ -1202,8 +1244,10 @@ public class MyCarAgent : Agent
             // 如果文件不存在或未写入头部，先写入头部
             if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
             {
-                // 观测空间：10维（sensor0-5, last_action_state, actual_vz, actual_vx, actual_omega）
-                // 动作：离散动作索引（0-6）
+                // CSV格式说明：
+                // 输入特征(10维): sensor0-5(6个传感器归一化强度0-1), last_action_state(上次动作索引归一化0-1), 
+                //                 actual_vz(实际前进速度归一化), actual_vx(实际横向速度归一化), actual_omega(实际角速度归一化)
+                // 输出目标(1维): discrete_action(离散动作索引0-10: 0=急左转,1=大左转,2=左转,3=小左转,4=微左转,5=直行,6=微右转,7=小右转,8=右转,9=大右转,10=急右转)
                 string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
                                "last_action_state," +
                                "actual_vz,actual_vx,actual_omega," +
@@ -1212,46 +1256,58 @@ public class MyCarAgent : Agent
                 episodeDataHeaderWritten = true;
             }
 
-            // 计算本次可写入的数量（考虑目标上限）
-            int writeCount = collectedData.Count;
-            if (enableMaxSamplesLimit)
+            // 计算本次可写入的数量（考虑目标上限和批量大小）
+            int remainingInBuffer = collectedData.Count;
+            int remainingInTarget = enableMaxSamplesLimit ? (maxDataSamples - totalCollectedSamples) : int.MaxValue;
+            int writeCount = Mathf.Min(remainingInBuffer, batchWriteSize, remainingInTarget);
+
+            if (writeCount <= 0)
             {
-                int remaining = maxDataSamples - totalCollectedSamples;
-                if (remaining <= 0)
+                if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
                 {
-                    Debug.Log($"[DataCollection] Target samples ({maxDataSamples}) reached, no more data will be written.");
                     enableDataCollection = false;
-                    return;
+                    Debug.Log($"[DataCollection] Target samples ({maxDataSamples}) reached, collection stopped.");
                 }
-                if (remaining < writeCount)
-                {
-                    writeCount = remaining;
-                    Debug.Log($"[DataCollection] Truncate episode data: write {writeCount}/{collectedData.Count} to reach target.");
-                }
+                return;
             }
 
-            // 追加数据行
-            using (StreamWriter writer = new StreamWriter(episodeDataFilePath, append: true))
+            // 批量写入数据（使用StringBuilder优化性能）
+            StringBuilder batchContent = new StringBuilder(writeCount * 100);  // 预估每行100字符
+            for (int i = 0; i < writeCount; i++)
             {
-                for (int i = 0; i < writeCount; i++)
-                {
-                    writer.WriteLine(collectedData[i]);
-                }
+                batchContent.AppendLine(collectedData[i]);
             }
 
+            // 一次性写入批量数据
+            File.AppendAllText(episodeDataFilePath, batchContent.ToString());
+
+            // 移除已写入的数据
+            collectedData.RemoveRange(0, writeCount);
             totalCollectedSamples += writeCount;
-            Debug.Log($"[DataCollection] Appended {writeCount} samples from episode to:\n{episodeDataFilePath}");
+
+            if (enableDebugLog)
+            {
+                Debug.Log($"[DataCollection] Flushed {writeCount} samples to file. Remaining in buffer: {collectedData.Count}, Total written: {totalCollectedSamples}");
+            }
 
             if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
             {
                 enableDataCollection = false;
+                collectedData.Clear();  // 清空剩余数据
                 Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), collection stopped.");
             }
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"[DataCollection] Failed to append episode data: {e.Message}");
+            Debug.LogError($"[DataCollection] Failed to flush data buffer: {e.Message}");
         }
+    }
+
+    // 追加回合数据到文件（每回合模式使用）
+    private void AppendEpisodeDataToFile()
+    {
+        // 使用统一的刷新方法
+        FlushDataBuffer();
     }
 
     // 导出收集的数据为CSV文件（手动导出使用，通常不需要，因为每回合自动写入）
@@ -1502,16 +1558,25 @@ public class MyCarAgent : Agent
             sb.Append(IsAligned ? "1" : "0"); sb.Append(",");
             sb.Append(isStableAligned ? "1" : "0");
             
-            // 追加到日志文件
-            File.AppendAllText(derailmentLogFilePath, sb.ToString() + System.Environment.NewLine);
+            // 添加到缓冲（批量写入，避免频繁I/O）
+            derailmentLogBuffer.Add(sb.ToString());
             
-            // 打印到控制台
-            Debug.Log($"[DerailmentLog] 脱轨记录 #{derailmentCount} | " +
-                     $"位置: ({position.x:F3}, {position.y:F3}, {position.z:F3}) | " +
-                     $"时间: {episodeTimer:F2}s | " +
-                     $"前中传感器: {frontCenter:F4} | " +
-                     $"后中传感器: {rearCenter:F4} | " +
-                     $"阈值: {threshold:F4}");
+            // 打印到控制台（仅在启用调试日志时）
+            if (enableDebugLog)
+            {
+                Debug.Log($"[DerailmentLog] 脱轨记录 #{derailmentCount} | " +
+                         $"位置: ({position.x:F3}, {position.y:F3}, {position.z:F3}) | " +
+                         $"时间: {episodeTimer:F2}s | " +
+                         $"前中传感器: {frontCenter:F4} | " +
+                         $"后中传感器: {rearCenter:F4} | " +
+                         $"阈值: {threshold:F4}");
+            }
+            
+            // 如果缓冲达到阈值，批量写入
+            if (derailmentLogBuffer.Count >= derailmentLogBufferSize)
+            {
+                FlushDerailmentLog();
+            }
         }
         catch (System.Exception e)
         {
@@ -1519,6 +1584,40 @@ public class MyCarAgent : Agent
         }
     }
     
+    /// <summary>
+    /// 刷新脱轨日志缓冲（批量写入文件）
+    /// </summary>
+    private void FlushDerailmentLog()
+    {
+        if (derailmentLogBuffer.Count == 0 || derailmentLogFilePath == null)
+        {
+            return;
+        }
+
+        try
+        {
+            // 批量写入缓冲数据
+            StringBuilder batchContent = new StringBuilder(derailmentLogBuffer.Count * 200);  // 预估每行200字符
+            foreach (string line in derailmentLogBuffer)
+            {
+                batchContent.AppendLine(line);
+            }
+
+            File.AppendAllText(derailmentLogFilePath, batchContent.ToString());
+            
+            if (enableDebugLog)
+            {
+                Debug.Log($"[DerailmentLog] Flushed {derailmentLogBuffer.Count} records to file.");
+            }
+            
+            derailmentLogBuffer.Clear();
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] Failed to flush log buffer: {e.Message}");
+        }
+    }
+
     /// <summary>
     /// 获取脱轨日志文件路径（用于调试或显示）
     /// </summary>
