@@ -385,7 +385,7 @@ class AdvancedDistillation:
         plt.savefig(f"boundary_{self.feature_names[feat1]}_vs_{self.feature_names[feat2]}.png", dpi=150)
         print(f"\n✓ 决策边界已保存: boundary_*.png")
         
-    def find_optimal_params(self, target_accuracy=0.95, max_iterations=50, max_code_lines=50000):
+    def find_optimal_params(self, target_accuracy=0.95, max_iterations=100, max_code_lines=50000):
         """
         自动寻找最优参数，使准确率接近目标值，同时限制代码大小
         使用智能搜索策略：先粗搜索，再精细调整
@@ -416,10 +416,10 @@ class AdvancedDistillation:
             # 第一阶段：粗搜索（快速找到大致范围）
             print(f"\n[{name} - 第一阶段：粗搜索]")
             # 从较小的深度开始，逐步增加，优先选择代码更小的方案
-            # 扩大搜索范围，与generate_rules.py保持一致
-            depth_range_coarse = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
-            min_leaf_coarse = [2, 3, 4, 5]  # 从较大的值开始，减少代码量
-            min_split_coarse = [4, 6, 8, 10]
+            # 扩大搜索范围以提高精度：增加更多深度选项和更小的min_leaf/min_split值
+            depth_range_coarse = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60]  # 扩展深度范围
+            min_leaf_coarse = [1, 2, 3, 4, 5]  # 添加1，允许更细的叶子节点（提高精度但增加代码）
+            min_split_coarse = [2, 4, 6, 8, 10]  # 添加2，允许更早的分裂（提高精度但增加代码）
             
             iteration = 0
             for depth in depth_range_coarse:
@@ -477,9 +477,10 @@ class AdvancedDistillation:
                 base_split = best_params['min_samples_split']
                 
                 # 在最佳参数附近搜索，优先尝试增加min_leaf和min_split（减少代码）
-                depth_range_fine = [base_depth - 3, base_depth - 1, base_depth, base_depth + 1, base_depth + 3]
-                min_leaf_fine = [max(2, base_leaf - 1), base_leaf, min(6, base_leaf + 1), min(8, base_leaf + 2)]
-                min_split_fine = [max(4, base_split - 2), base_split, min(12, base_split + 2), min(15, base_split + 4)]
+                # 扩展精细搜索范围，允许更深的树和更小的叶子节点以提高精度
+                depth_range_fine = [base_depth - 5, base_depth - 3, base_depth - 1, base_depth, base_depth + 1, base_depth + 3, base_depth + 5]
+                min_leaf_fine = [max(1, base_leaf - 2), max(1, base_leaf - 1), base_leaf, min(8, base_leaf + 1), min(10, base_leaf + 2)]
+                min_split_fine = [max(2, base_split - 3), max(2, base_split - 2), base_split, min(15, base_split + 2), min(20, base_split + 4)]
                 
                 iteration = max_iterations // 2
                 for depth in depth_range_fine:
