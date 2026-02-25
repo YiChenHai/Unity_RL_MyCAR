@@ -9,23 +9,27 @@ using UnityEngine;
 /// </summary>
 public class MyCar_Agent_DistillationTest : MonoBehaviour
 {
-    [Header("Decision Tree Model")]
-    [Tooltip("决策树规则库实例（从 DecisionTreeRules.cs 生成）\n注意：DecisionTreeRules是普通C#类，不需要在Inspector中分配，代码会自动创建实例")]
+    [Header("决策树模型")]
+    [Tooltip("决策树规则库实例（从 DecisionTreeRules.cs 生成，代码会自动创建实例）")]
     public DecisionTreeRules decisionTree;  // 通常为null，代码会自动创建实例
     
-    [Header("Refs (参考 MyCar_Agent.cs)")]
+    [Header("引用组件（参考 MyCar_Agent.cs）")]
     public MagneticTape tape;
     [Tooltip("传感器顺序: [0]=前左, [1]=前中, [2]=前右, [3]=后左, [4]=后中, [5]=后右")]
     public Transform[] sensors = new Transform[6];
     public Rigidbody rb;
     public MyCar_Motion myCarMotion;
     
-    [Header("Control limits (与 MyCar_Agent.cs 保持一致)")]
+    [Header("回合设置")]
+    public float maxEpisodeTime = 40f;
+    private float episodeTimer = 0f;
+    
+    [Header("控制限制（与 MyCar_Agent.cs 保持一致）")]
     public float constantForwardSpeed = 0.2f;  // vz 固定前进速度 m/s
     public float maxLateralSpeed = 0.15f;       // vx (横向速度) m/s
     public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s
     
-    [Header("Discrete Action Space (与 MyCar_Agent.cs 保持一致)")]
+    [Header("离散动作空间（与 MyCar_Agent.cs 保持一致）")]
     [Tooltip("急左转/急右转的角速度值(归一化-1~1)")]
     [Range(0f, 1f)]
     public float turnSharpAngularValue = 0.5625f;
@@ -42,14 +46,14 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
     [Range(0f, 1f)]
     public float turnMicroAngularValue = 0.0625f;
     
-    [Header("Normalization")]
+    [Header("归一化设置")]
     public float maxField = 8f;                // 磁场最大值
     
-    [Header("Output Smoothing")]
+    [Header("输出平滑")]
     [Range(0f, 1f)]
     public float smoothingAlpha = 0.4f;  // 指数平滑系数（与 MyCar_Agent.cs 一致）
     
-    [Header("Debug")]
+    [Header("调试")]
     [Tooltip("显示决策树预测的动作值")]
     public bool showPredictedActions = false;
     [Tooltip("显示观测值")]
@@ -62,6 +66,22 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
     private float smoothedLateralSpeed = 0f;   // 平滑后的横向速度
     private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
+    
+    // 对齐状态（用于脱轨检测和显示）
+    private bool isAligned = false;
+    private bool isStableAligned = false;
+    private float alignedTimer = 0f;
+    public float stableAlignedTime = 0.3f;  // 稳定对齐时间阈值（秒）
+    
+    // 公开接口供外部访问（与 MyCar_Agent 保持一致）
+    public int CurrentDiscreteAction => lastDiscreteAction;
+    public int PreviousDiscreteAction { get; private set; } = 5;
+    public float EpisodeTimer => episodeTimer;
+    public float LastOutputLateralSpeed => lastOutputLateralSpeed;
+    public float LastOutputAngularSpeed => lastOutputAngularSpeed;
+    public bool IsAligned => isAligned;
+    public bool IsStableAligned => isStableAligned;
+    public float AlignedTimer => alignedTimer;
     
     void Start()
     {
@@ -96,8 +116,14 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
     
     void FixedUpdate()
     {
+        // 更新回合计时器
+        episodeTimer += Time.fixedDeltaTime;
+        
         // ========== 步骤1：采集观测数据（参考 MyCar_Agent.cs 的 CollectObservations） ==========
         CollectObservations();
+        
+        // ========== 判断对齐状态（用于脱轨检测和显示） ==========
+        UpdateAlignmentState();
         
         // ========== 步骤2：决策树预测（使用 DecisionTreeRules.cs 的决策树） ==========
         if (decisionTree != null)
@@ -123,6 +149,7 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
             smoothedAngularSpeed = Mathf.Lerp(smoothedAngularSpeed, rawAngularSpeed, smoothingAlpha);
             
             // 保存输出（用于下一次观察）
+            PreviousDiscreteAction = lastDiscreteAction;  // 保存上一帧的动作
             lastOutputLateralSpeed = smoothedLateralSpeed;
             lastOutputAngularSpeed = smoothedAngularSpeed;
             lastDiscreteAction = discreteAction;  // 保存离散动作索引
@@ -153,6 +180,63 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
         else
         {
             Debug.LogError("[DistillationTest] DecisionTreeRules 未初始化！");
+        }
+    }
+    
+    /// <summary>
+    /// 更新对齐状态（参考 MyCar_Agent.cs 的 CheckAlignmentState）
+    /// </summary>
+    void UpdateAlignmentState()
+    {
+        if (tape == null || sensors == null || sensors.Length < 6)
+        {
+            isAligned = false;
+            isStableAligned = false;
+            alignedTimer = 0f;
+            return;
+        }
+        
+        // 读取传感器数据
+        float[] sensorValues = new float[6];
+        for (int i = 0; i < sensors.Length; i++)
+        {
+            if (sensors[i] != null && tape != null)
+            {
+                Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                sensorValues[i] = mag.magnitude;
+            }
+        }
+        
+        // 判断对齐状态（参考 MyCar_Agent.cs 的逻辑）
+        float alignedThresholdPercent = 0.1f;  // 对齐状态左右差值阈值
+        float centerThresholdPercent = 0.65f;  // 对齐状态中心传感器阈值
+        
+        float frontDiff = Mathf.Abs(sensorValues[0] - sensorValues[2]);  // 前左 vs 前右
+        float rearDiff = Mathf.Abs(sensorValues[3] - sensorValues[5]);   // 后左 vs 后右
+        float frontCenter = sensorValues[1];  // 前中
+        float rearCenter = sensorValues[4];   // 后中
+        
+        float diffThreshold = maxField * alignedThresholdPercent;
+        float centerThreshold = maxField * centerThresholdPercent;
+        
+        bool leftRightAligned = (frontDiff < diffThreshold) && (rearDiff < diffThreshold);
+        bool centerStrong = (frontCenter > centerThreshold) && (rearCenter > centerThreshold);
+        
+        isAligned = leftRightAligned && centerStrong;
+        
+        // 更新对齐计时器
+        if (isAligned)
+        {
+            alignedTimer += Time.fixedDeltaTime;
+            if (alignedTimer >= stableAlignedTime)
+            {
+                isStableAligned = true;
+            }
+        }
+        else
+        {
+            alignedTimer = 0f;
+            isStableAligned = false;
         }
     }
     
@@ -314,10 +398,15 @@ public class MyCar_Agent_DistillationTest : MonoBehaviour
         }
         
         // 重置状态变量
+        episodeTimer = 0f;
         lastDiscreteAction = 5;  // 初始化为直行
+        PreviousDiscreteAction = 5;
         lastOutputLateralSpeed = 0f;
         lastOutputAngularSpeed = 0f;
         smoothedLateralSpeed = 0f;
         smoothedAngularSpeed = 0f;
+        alignedTimer = 0f;
+        isAligned = false;
+        isStableAligned = false;
     }
 }

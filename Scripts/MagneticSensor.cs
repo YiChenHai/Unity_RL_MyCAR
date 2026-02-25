@@ -3,30 +3,30 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Ä£Äâ´Å´«¸ÐÆ÷ Magnetic Sensor
+/// Ä£ï¿½ï¿½Å´ï¿½ï¿½ï¿½ï¿½ï¿½ Magnetic Sensor
 /// </summary>
 public class MagneticSensor : MonoBehaviour
 {
-    [Header("´ÅÌõÒýÓÃ")]
-    public MagneticTape magneticTape;  // °ó¶¨´ÅÌõ¶ÔÏó£¨¶ø·Ç´Åµ¼Ïß£©
+    [Header("ç£ä¼ æ„Ÿå™¨é…ç½®")]
+    public MagneticTape magneticTape;  // ç»‘å®šç£å¸¦å¯¹è±¡
 
-    [Tooltip("µ±Ç°´«¸ÐÆ÷²âµÃµÄ´Å³¡Ç¿¶È (µ¥Î»»¯Öµ)")]
-    public float fieldStrength;  // ÓÃÓÚ´æ´¢´Å³¡µÄÇ¿¶È£¨±êÁ¿£©
+    // å½“å‰æµ‹åˆ°çš„ç£åœºå¼ºåº¦ï¼ˆä»…ç”¨äºŽæ˜¾ç¤ºï¼‰
+    public float fieldStrength;
 
-    [Tooltip("µ±Ç°´«¸ÐÆ÷²âµÃµÄ´Å³¡·½Ïò")]
-    public Vector3 fieldDirection;  // ÓÃÓÚ´æ´¢´Å³¡µÄ·½Ïò£¨Ê¸Á¿£©
+    // å½“å‰æµ‹åˆ°çš„ç£åœºæ–¹å‘ï¼ˆä»…ç”¨äºŽæ˜¾ç¤ºï¼‰
+    public Vector3 fieldDirection;
 
-    [Tooltip("ÊÇ·ñÏÔÊ¾´Å³¡·½Ïò¼ýÍ·")]
+    // æ˜¯å¦åœ¨åœºæ™¯è§†å›¾ä¸­ç»˜åˆ¶ç£åœºæ–¹å‘ç®­å¤´
     public bool showDirection = false;
 
     void Update()
     {
         if (magneticTape != null)
         {
-            // µ÷ÓÃ´ÅÌõ½Å±¾µÄ·½·¨À´»ñÈ¡´Å³¡Ê¸Á¿
+            // ï¿½ï¿½ï¿½Ã´ï¿½ï¿½ï¿½ï¿½Å±ï¿½ï¿½Ä·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¡ï¿½Å³ï¿½Ê¸ï¿½ï¿½
             Vector3 magneticField = magneticTape.GetMagneticField(transform.position);
-            fieldStrength = magneticField.magnitude;  // »ñÈ¡´Å³¡Ç¿¶È£¨±êÁ¿£©
-            fieldDirection = magneticField.normalized;  // »ñÈ¡´Å³¡·½Ïò£¨µ¥Î»ÏòÁ¿£©
+            fieldStrength = magneticField.magnitude;  // ï¿½ï¿½È¡ï¿½Å³ï¿½Ç¿ï¿½È£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+            fieldDirection = magneticField.normalized;  // ï¿½ï¿½È¡ï¿½Å³ï¿½ï¿½ï¿½ï¿½ò£¨µï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         }
     }
 
@@ -35,12 +35,12 @@ public class MagneticSensor : MonoBehaviour
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, 0.02f);
 
-        // ¿ÉÑ¡£º¿ÉÊÓ»¯´Å³¡·½Ïò
+        // ï¿½ï¿½Ñ¡ï¿½ï¿½ï¿½ï¿½ï¿½Ó»ï¿½ï¿½Å³ï¿½ï¿½ï¿½ï¿½ï¿½
         if (showDirection && magneticTape != null)
         {
-            // Ê¹ÓÃ GetMagneticField À´»ñÈ¡´Å³¡Ê¸Á¿
+            // Ê¹ï¿½ï¿½ GetMagneticField ï¿½ï¿½ï¿½ï¿½È¡ï¿½Å³ï¿½Ê¸ï¿½ï¿½
             Vector3 magneticField = magneticTape.GetMagneticField(transform.position);
-            float visualScale = 10f; // ¿Éµ÷´óÒÔ¿´¼û¼ýÍ·
+            float visualScale = 10f; // ï¿½Éµï¿½ï¿½ï¿½ï¿½Ô¿ï¿½ï¿½ï¿½ï¿½ï¿½Í·
             if (magneticField.magnitude > 1e-8f)
             {
                 Gizmos.color = Color.yellow;

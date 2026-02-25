@@ -357,7 +357,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c667595f282c2d84c9483eace042e852, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  controlSource: 1
+  controlSource: 0
   wheelColliders:
   - {fileID: 751401904}
   - {fileID: 897324996}
@@ -462,7 +462,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -471,13 +471,6 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 0
-  recordDerailmentEpisodes: 0
-  enableMaxSamplesLimit: 0
-  maxDataSamples: 300000
-  maxBufferSize: 20000
-  batchWriteSize: 10000
-  customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
   tape: {fileID: 1462255779}
   sensors:
@@ -492,7 +485,6 @@ MonoBehaviour:
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.15
   maxOmegaDeg: 80
-  useDiscreteActions: 1
   turnSharpAngularValue: 0.5625
   turnLargeAngularValue: 0.4
   turnAngularValue: 0.25
@@ -505,7 +497,6 @@ MonoBehaviour:
   alignedBonus: 2
   speedHighPercent: 0.6
   speedLowPercent: 0.2
-  speedPenalty: -0.2
   diff0Reward: 0.3
   diff1Reward: 0.15
   diff2Reward: 0
@@ -517,11 +508,6 @@ MonoBehaviour:
   diff8Penalty: -0.55
   diff9Penalty: -0.7
   diff10Penalty: -1
-  smallOutputBonus: 1.5
-  lateralAngularEquivalenceFactor: 0.562
-  enableTurningReward: 0
-  turningBonus: 0.5
-  turningThreshold: 0.5
   derailPenalty: -10
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
@@ -531,11 +517,8 @@ MonoBehaviour:
   normalTurnPenaltyMultiplier: 1
   enableRewardTracking: 0
   enableDebugLog: 0
-  enableDerailmentLogging: 0
-  derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  derailmentLogBufferSize: 50
   stableAlignedTime: 0.8
-  smoothingAlpha: 0.4
+  smoothingAlpha: 1
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: 0, y: 0.15, z: 4.5}
@@ -562,6 +545,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   myCarMotion: {fileID: 714007404}
   myCarAgent: {fileID: 714007408}
+  myCarAgent_DistillationTest: {fileID: 0}
   rb: {fileID: 714007403}
   tape: {fileID: 1462255779}
   sensors:
@@ -571,14 +555,11 @@ MonoBehaviour:
   - {fileID: 1848363869}
   - {fileID: 1550834400}
   - {fileID: 1240964160}
-  showDebugInfo: 1
-  autoDisableInTraining: 1
-  showOutputCurves: 0
+  showDebugInfo: 0
+  autoDisableInTraining: 0
   displayPosition: {x: 10, y: 10}
   displaySize: {x: 480, y: 550}
-  curveHistoryLength: 200
-  curveAreaPosition: {x: 520, y: 10}
-  curveAreaSize: {x: 400, y: 250}
+  curveHistoryLength: 100
   showActionIndexCurve: 1
   actionCurvePosition: {x: 930, y: 10}
   actionCurveSize: {x: 400, y: 250}
@@ -587,6 +568,16 @@ MonoBehaviour:
   rewardDisplaySize: {x: 500, y: 200}
   rewardCurvePosition: {x: 520, y: 270}
   rewardCurveSize: {x: 400, y: 200}
+  enableDataCollection: 0
+  recordDerailmentEpisodes: 0
+  enableMaxSamplesLimit: 0
+  maxDataSamples: 300000
+  maxBufferSize: 20000
+  batchWriteSize: 10000
+  customSavePath: 
+  enableDerailmentLogging: 0
+  derailmentLogPath: 
+  derailmentLogBufferSize: 50
 --- !u!114 &714007410
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -609,6 +600,7 @@ MonoBehaviour:
   - {fileID: 1240964160}
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
+  maxEpisodeTime: 40
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.1
   maxOmegaDeg: 80
@@ -621,6 +613,7 @@ MonoBehaviour:
   smoothingAlpha: 0.6
   showPredictedActions: 1
   showObservations: 1
+  stableAlignedTime: 0.3
 --- !u!1 &751401902
 GameObject:
   m_ObjectHideFlags: 0

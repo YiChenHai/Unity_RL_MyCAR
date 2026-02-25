@@ -1,7 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using UnityEngine;
 using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
@@ -28,29 +26,6 @@ public enum DiscreteAction
 
 public class MyCarAgent : Agent
 {
-    [Header("Data Collection for Distillation")]
-    public bool enableDataCollection = false;  // 启用数据收集模式
-    [Tooltip("是否记录脱轨终止的回合数据. false=不记录(推荐), true=记录所有回合")]
-    public bool recordDerailmentEpisodes = false;  // 是否记录脱轨终止的回合
-    [Tooltip("是否启用记录条数限制")]
-    public bool enableMaxSamplesLimit = false;  // 是否启用最大记录条数限制
-    [Tooltip("目标采集数量(仅在启用限制时有效). 到达目标后停止写入")]
-    [Range(1, 1000000)]
-    public int maxDataSamples = 300000;         // 最大记录条数
-    [Tooltip("内存缓冲区最大容量(防止内存溢出). 超过此数量时自动分批写入文件. 建议值: 10000-50000")]
-    [Range(1000, 100000)]
-    public int maxBufferSize = 20000;          // 内存缓冲区最大容量
-    [Tooltip("批量写入大小(每次写入的数据条数). 建议值: 5000-20000,过大可能导致写入阻塞")]
-    [Range(1000, 50000)]
-    public int batchWriteSize = 10000;         // 批量写入大小
-    [Tooltip("CSV文件保存文件夹路径. 留空则使用默认路径Application.persistentDataPath. 文件会自动以日期命名training_data_yyyyMMdd_HHmmss.csv")]
-    public string customSavePath = "";         // 用户指定的保存文件夹路径
-    private List<string> collectedData = new List<string>();  // CSV格式: obs0,obs1,...,obs12,action0,action1
-    private int episodeDataCount = 0;          // 当前回合收集的数据数量
-    private int totalCollectedSamples = 0;     // 已累计写入的总样本数（跨回合）
-    private string episodeDataFilePath = null;  // 使用的文件路径
-    private bool episodeDataHeaderWritten = false;  // 是否已写入CSV头部
-    private bool episodeEndedByDerailment = false;  // 标记当前回合是否因脱轨终止
     
     [Header("Config Priority")]
     [Tooltip("勾选: 使用Unity Inspector中的值. 不勾选: 运行时将被脚本默认值覆盖")]
@@ -72,9 +47,6 @@ public class MyCarAgent : Agent
     public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
     
     [Header("Discrete Action Space (扩展版: 11个动作)")]
-    [Tooltip("已强制启用离散动作空间(11个动作). 必须在BehaviorParameters中配置: Space Size=1, Branch 0 Size=11, Continuous Actions=0, Vector Observation Size=10")]
-    [System.Obsolete("此参数已废弃，系统强制使用离散动作空间")]
-    public bool useDiscreteActions = true;  // 已强制启用离散动作空间
     [Tooltip("急左转/急右转的角速度值(归一化-1~1). 例如0.5625表示使用最大角速度的56.25%")]
     [Range(0f, 1f)]
     public float turnSharpAngularValue = 0.5625f;  // 急转弯的角速度值
@@ -113,9 +85,6 @@ public class MyCarAgent : Agent
     public float speedHighPercent = 0.6f;
     [Tooltip("速度惩罚阈值(20%). 速度<此阈值时返回-2.0(大惩罚). 在此阈值和speedHighPercent之间时线性插值")]
     public float speedLowPercent = 0.20f;
-    [Tooltip("已删除: 速度过低时的惩罚值，不再使用")]
-    [System.Obsolete("此参数已删除")]
-    public float speedPenalty = -0.2f;
 
     [Header("3. 平稳性奖励 (Smoothness Reward)")]
     [Tooltip("动作索引差值0的奖励值(动作保持不变). 差值0-2为奖励值,差值3-10为惩罚值")]
@@ -141,25 +110,6 @@ public class MyCarAgent : Agent
     [Tooltip("差值10的惩罚值(最大差值)")]
     public float diff10Penalty = -1.0f;
 
-    [Header("4. 小输出奖励 (Small Output Bonus) - [已删除]")]
-    [Tooltip("已删除: 小输出奖励已移除，改用直线输出限制惩罚")]
-    [System.Obsolete("此奖励项已删除")]
-    public float smallOutputBonus = 1.0f;
-    [Tooltip("已删除: 横向速度与角速度的配平系数，不再使用")]
-    [System.Obsolete("此参数已删除")]
-    [Range(0.1f, 2.0f)]
-    public float lateralAngularEquivalenceFactor = 0.562f;
-
-    [Header("5. 转弯奖励 (Turning Reward) - [已删除]")]
-    [Tooltip("已删除: 转弯奖励已移除")]
-    [System.Obsolete("转弯奖励已删除")]
-    public bool enableTurningReward = false;
-    [Tooltip("已删除: 转弯鼓励奖励幅度")]
-    [System.Obsolete("转弯奖励已删除")]
-    public float turningBonus = 0.3f;
-    [Tooltip("已删除: 触发转弯奖励的角速度阈值")]
-    [System.Obsolete("转弯奖励已删除")]
-    public float turningThreshold = 0.3f;
 
     [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
     [Tooltip("脱轨惩罚(负数),脱轨时立即终止回合")]
@@ -210,16 +160,6 @@ public class MyCarAgent : Agent
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
-    [Tooltip("是否启用脱轨日志记录(记录到文件)")]
-    public bool enableDerailmentLogging = true;  // 脱轨日志开关
-    [Tooltip("脱轨日志文件保存路径(留空则使用默认路径)")]
-    public string derailmentLogPath = "";  // 脱轨日志文件路径
-    [Tooltip("脱轨日志缓冲大小(达到此数量时批量写入). 建议值: 10-100,避免频繁写入")]
-    [Range(1, 500)]
-    public int derailmentLogBufferSize = 50;  // 脱轨日志缓冲大小
-    private string derailmentLogFilePath = null;  // 实际使用的日志文件路径
-    private int derailmentCount = 0;  // 脱轨次数计数器
-    private List<string> derailmentLogBuffer = new List<string>();  // 脱轨日志缓冲
 
     [Header("Stable Tracking")]
     public float stableAlignedTime = 0.3f;     // 稳定对齐时间阈值（秒）
@@ -232,8 +172,13 @@ public class MyCarAgent : Agent
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
     // 公开动作状态供外部访问（如UI显示）
-    public int CurrentDiscreteAction => lastDiscreteAction;  // 当前输出的离散动作索引（0-6）
-    public int PreviousDiscreteAction => prevDiscreteAction;  // 上一帧的离散动作索引（0-6）
+    public int CurrentDiscreteAction => lastDiscreteAction;  // 当前输出的离散动作索引（0-10）
+    public int PreviousDiscreteAction => prevDiscreteAction;  // 上一帧的离散动作索引（0-10）
+    
+    // 公开状态供数据记录使用
+    public float EpisodeTimer => episodeTimer;  // 当前回合时间
+    public float LastOutputLateralSpeed => lastOutputLateralSpeed;  // 上次输出的横向速度
+    public float LastOutputAngularSpeed => lastOutputAngularSpeed;  // 上次输出的角速度
     
     // 动作记忆（用于观察空间）
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
@@ -429,12 +374,6 @@ public class MyCarAgent : Agent
             rb.angularVelocity = Vector3.zero;
         }
         
-        // ========== 初始化脱轨日志文件（如果启用） ==========
-        if (enableDerailmentLogging && derailmentLogFilePath == null)
-        {
-            InitializeDerailmentLogFile();
-        }
-        
         // ========== 从出生点数组中随机选择 ==========
         int spawnIndex = 0;
         if (spawnPositions != null && spawnPositions.Length > 0)
@@ -492,36 +431,6 @@ public class MyCarAgent : Agent
                 System.Array.Clear(rewardHistory, 0, rewardHistory.Length);
             }
         }
-        
-        // ========== 数据收集：回合结束处理 ==========
-        // 检查上一回合是否因脱轨终止（在OnEpisodeBegin时，上一回合已结束）
-        bool shouldSaveLastEpisode = recordDerailmentEpisodes || !episodeEndedByDerailment;
-        
-        // 每回合结束时自动写入
-        if (collectedData.Count > 0 && shouldSaveLastEpisode)
-        {
-            // 保存上一回合的数据到文件
-            AppendEpisodeDataToFile();
-            Debug.Log($"[DataCollection] 回合数据已保存，样本数: {collectedData.Count}");
-        }
-        else if (collectedData.Count > 0 && !shouldSaveLastEpisode)
-        {
-            // 因脱轨终止且不记录脱轨回合，跳过保存
-            Debug.Log($"[DataCollection] 回合因脱轨终止，跳过保存（recordDerailmentEpisodes=false），样本数: {collectedData.Count}");
-        }
-        
-        // 清理内存中的数据，准备新回合
-        collectedData.Clear();
-        episodeDataCount = 0;
-        
-        // ========== 刷新脱轨日志缓冲（确保所有数据都被写入） ==========
-        if (enableDerailmentLogging && derailmentLogBuffer.Count > 0)
-        {
-            FlushDerailmentLog();
-        }
-        
-        // 重置脱轨标志
-        episodeEndedByDerailment = false;
     }
 
     public override void CollectObservations(VectorSensor sensor)
@@ -569,38 +478,6 @@ public class MyCarAgent : Agent
         MapDiscreteActionToContinuous(discreteAction, out a_x, out a_w);
         
         // 注意：lastDiscreteAction 将在计算奖励后更新，用于下一帧观察
-
-        // ========== 数据收集（如果启用） ==========
-        if (enableDataCollection)
-        {
-            // 检查是否达到目标数量
-            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
-            {
-                enableDataCollection = false;
-                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
-            }
-            else if (enableMaxSamplesLimit)
-            {
-                // 检查剩余可采集数量
-                int remaining = maxDataSamples - totalCollectedSamples - collectedData.Count;
-                if (remaining <= 0)
-                {
-                    enableDataCollection = false;
-                    Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
-                }
-                else
-                {
-                    RecordSample(discreteAction);
-                    episodeDataCount++;  // 记录当前回合的数据数量
-                }
-            }
-            else
-            {
-                // 无限制，正常采集
-                RecordSample(discreteAction);
-                episodeDataCount++;  // 记录当前回合的数据数量
-            }
-        }
 
         // 保存原始动作用于下一帧观察（供平滑延迟感知）
         lastRawLateralAction = a_x;
@@ -703,12 +580,6 @@ public class MyCarAgent : Agent
                 }
             }
             
-            // ========== 标记为脱轨终止 ==========
-            episodeEndedByDerailment = true;
-            
-            // ========== 记录脱轨信息 ==========
-            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, discreteAction, outputVx, outputOmega);
-            
             if (enableDebugLog)
             {
                 Debug.Log($"Episode Ended: derailment (immediate). frontCenter={frontCenter:F4}, rearCenter={rearCenter:F4}, threshold={derailThresholdValue:F4}");
@@ -772,9 +643,6 @@ public class MyCarAgent : Agent
         episodeTimer += Time.fixedDeltaTime;
         if (episodeTimer >= maxEpisodeTime)
         {
-            // 超时终止，不是脱轨终止
-            episodeEndedByDerailment = false;
-            
             if (enableDebugLog)
             {
                 Debug.Log($"Episode Ended: timeout. episodeTimer={episodeTimer:F2}s");
@@ -1104,545 +972,6 @@ public class MyCarAgent : Agent
         }
         
         return totalReward;
-    }
-
-    // ========== 数据收集方法 ==========
-    private void RecordSample(int discreteAction)
-    {
-        // 重新计算观测（与CollectObservations逻辑相同，10维）
-        List<float> observations = new List<float>();
-
-        // 1-6: 六个传感器的归一化强度
-        float[] sensorValues = new float[6];
-        for (int i = 0; i < sensors.Length; i++)
-        {
-            if (sensors[i] != null && tape != null)
-            {
-                Vector3 mag = tape.GetMagneticField(sensors[i].position);
-                sensorValues[i] = mag.magnitude;
-                observations.Add(Mathf.Clamp01(mag.magnitude / Mathf.Max(1e-9f, maxField)));
-            }
-            else observations.Add(0f);
-        }
-
-        // 7: 上次输出状态（离散动作索引归一化到0-1范围）
-        float lastActionState = lastDiscreteAction / 10f;
-        observations.Add(lastActionState);
-
-        // 8-10: 实际运动状态（物理反馈）
-        Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
-        float angularVel = rb != null ? rb.angularVelocity.y : 0f;
-        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        observations.Add(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 8: 实际前进速度
-        observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 9: 实际横向速度
-        observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 10: 实际角速度
-
-        // 构建CSV行：10维特征 + 1维目标（离散动作索引）
-        // 格式：sensor0,sensor1,sensor2,sensor3,sensor4,sensor5,last_action_state,actual_vz,actual_vx,actual_omega,discrete_action
-        StringBuilder sb = new StringBuilder();
-        
-        // 写入10维特征（浮点数，保留6位小数）
-        for (int i = 0; i < observations.Count; i++)
-        {
-            sb.Append(observations[i].ToString("F6"));
-            if (i < observations.Count - 1)
-            {
-                sb.Append(",");
-            }
-        }
-        
-        // 写入目标：离散动作索引（整数，0-10）
-        sb.Append(",");
-        sb.Append(discreteAction.ToString());
-        
-        collectedData.Add(sb.ToString());
-        
-        // 内存保护：如果缓冲区超过最大容量，自动分批写入
-        if (collectedData.Count >= maxBufferSize)
-        {
-            FlushDataBuffer();
-        }
-    }
-
-    // 获取保存目录路径（如果用户指定了路径则使用，否则使用默认路径）
-    private string GetSaveDirectory()
-    {
-        if (!string.IsNullOrEmpty(customSavePath))
-        {
-            // customSavePath现在只接受目录路径，不再接受完整文件路径
-            // 如果用户误输入了完整文件路径，提取目录部分
-            if (Path.HasExtension(customSavePath))
-            {
-                string dir = Path.GetDirectoryName(customSavePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    Debug.LogWarning($"[DataCollection] customSavePath应该是目录路径，检测到文件路径，已提取目录: {dir}");
-                    return dir;
-                }
-            }
-            // 如果是指定的目录路径，直接使用
-            return customSavePath;
-        }
-        // 默认使用持久化数据路径
-        return Application.persistentDataPath;
-    }
-
-    // 获取完整文件路径
-    private string GetFullFilePath(string fileName)
-    {
-        // 组合目录和文件名（使用日期命名的文件名）
-        string directory = GetSaveDirectory();
-        return Path.Combine(directory, fileName);
-    }
-
-    // 初始化数据文件（如果尚未初始化）
-    private void InitializeDataFileIfNeeded()
-    {
-        if (episodeDataFilePath != null)
-        {
-            return;  // 已初始化
-        }
-
-        // 使用日期命名：training_data_yyyyMMdd_HHmmss.csv
-        string fileName = $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-        episodeDataFilePath = GetFullFilePath(fileName);
-        
-        episodeDataHeaderWritten = false;
-        
-        // 确保目录存在
-        string directory = GetSaveDirectory();
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
-                episodeDataFilePath = null;
-            }
-        }
-    }
-
-    // 刷新数据缓冲区（分批写入，防止内存溢出和I/O阻塞）
-    private void FlushDataBuffer()
-    {
-        if (collectedData.Count == 0)
-        {
-            return;
-        }
-
-        InitializeDataFileIfNeeded();
-        if (episodeDataFilePath == null)
-        {
-            return;
-        }
-
-        try
-        {
-            // 如果文件不存在或未写入头部，先写入头部
-            if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
-            {
-                // CSV格式说明：
-                // 输入特征(10维): sensor0-5(6个传感器归一化强度0-1), last_action_state(上次动作索引归一化0-1), 
-                //                 actual_vz(实际前进速度归一化), actual_vx(实际横向速度归一化), actual_omega(实际角速度归一化)
-                // 输出目标(1维): discrete_action(离散动作索引0-10: 0=急左转,1=大左转,2=左转,3=小左转,4=微左转,5=直行,6=微右转,7=小右转,8=右转,9=大右转,10=急右转)
-                string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
-                               "last_action_state," +
-                               "actual_vz,actual_vx,actual_omega," +
-                               "discrete_action";
-                File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
-                episodeDataHeaderWritten = true;
-            }
-
-            // 计算本次可写入的数量（考虑目标上限和批量大小）
-            int remainingInBuffer = collectedData.Count;
-            int remainingInTarget = enableMaxSamplesLimit ? (maxDataSamples - totalCollectedSamples) : int.MaxValue;
-            int writeCount = Mathf.Min(remainingInBuffer, batchWriteSize, remainingInTarget);
-
-            if (writeCount <= 0)
-            {
-                if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
-                {
-                    enableDataCollection = false;
-                    Debug.Log($"[DataCollection] Target samples ({maxDataSamples}) reached, collection stopped.");
-                }
-                return;
-            }
-
-            // 批量写入数据（使用StringBuilder优化性能）
-            StringBuilder batchContent = new StringBuilder(writeCount * 100);  // 预估每行100字符
-            for (int i = 0; i < writeCount; i++)
-            {
-                batchContent.AppendLine(collectedData[i]);
-            }
-
-            // 一次性写入批量数据
-            File.AppendAllText(episodeDataFilePath, batchContent.ToString());
-
-            // 移除已写入的数据
-            collectedData.RemoveRange(0, writeCount);
-            totalCollectedSamples += writeCount;
-
-            if (enableDebugLog)
-            {
-                Debug.Log($"[DataCollection] Flushed {writeCount} samples to file. Remaining in buffer: {collectedData.Count}, Total written: {totalCollectedSamples}");
-            }
-
-            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
-            {
-                enableDataCollection = false;
-                collectedData.Clear();  // 清空剩余数据
-                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), collection stopped.");
-            }
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[DataCollection] Failed to flush data buffer: {e.Message}");
-        }
-    }
-
-    // 追加回合数据到文件（每回合模式使用）
-    private void AppendEpisodeDataToFile()
-    {
-        // 使用统一的刷新方法
-        FlushDataBuffer();
-    }
-
-    // 导出收集的数据为CSV文件（手动导出使用，通常不需要，因为每回合自动写入）
-    public void ExportCollectedData(string customFileName = null)
-    {
-        if (collectedData.Count == 0)
-        {
-            Debug.LogWarning("[DataCollection] No data collected yet!");
-            return;
-        }
-
-        // 生成文件名（带时间戳）
-        string fileName = customFileName ?? $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-        string filePath = GetFullFilePath(fileName);
-        
-        // 确保目录存在
-        string directory = GetSaveDirectory();
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
-                return;
-            }
-        }
-        
-        // 生成CSV头部
-        List<string> csv = new List<string>();
-        // 注意：最后两列是当前帧的原始动作（actionX, actionW），不是输出动作
-        string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
-                       "smoothed_vx,smoothed_omega," +
-                       "raw_action_x,raw_action_w," +
-                       "actual_vz,actual_vx,actual_omega," +
-                       "action_x,action_w";
-        csv.Add(header);
-        csv.AddRange(collectedData);
-
-        // 写入文件
-        try
-        {
-            File.WriteAllLines(filePath, csv);
-            Debug.Log($"[DataCollection] Successfully exported {collectedData.Count} samples to:\n{filePath}");
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[DataCollection] Failed to export data: {e.Message}");
-        }
-    }
-
-        // 清理收集的数据
-        public void ClearCollectedData()
-        {
-            int count = collectedData.Count;
-            collectedData.Clear();
-            episodeDataCount = 0;
-            
-            // 重置文件状态
-            episodeDataFilePath = null;
-            episodeDataHeaderWritten = false;
-            
-            Debug.Log($"[DataCollection] Cleared {count} samples from memory.");
-        }
-
-    // 获取当前收集的数据数量
-    public int GetCollectedDataCount()
-    {
-        return collectedData.Count;
-    }
-
-    // 重置文件（开始新的文件）
-    public void ResetEpisodeDataFile()
-    {
-        episodeDataFilePath = null;
-        episodeDataHeaderWritten = false;
-        Debug.Log("[DataCollection] Reset episode data file. Next episode will create a new file.");
-    }
-
-    // 获取数据保存路径（用于调试或显示）
-    public string GetDataSavePath()
-    {
-        return GetSaveDirectory();
-    }
-
-    // 打印数据保存路径到控制台
-    [ContextMenu("Print Data Save Path")]
-    public void PrintDataSavePath()
-    {
-        string actualPath = GetSaveDirectory();
-        string defaultPath = Application.persistentDataPath;
-        
-        string message = $"[DataCollection] CSV文件保存路径:\n";
-        
-        if (!string.IsNullOrEmpty(customSavePath))
-        {
-            message += $"用户指定路径: {customSavePath}\n";
-            message += $"实际保存目录: {actualPath}\n";
-            if (Path.HasExtension(customSavePath))
-            {
-                message += $"完整文件路径: {customSavePath}\n";
-            }
-        }
-        else
-        {
-            message += $"使用默认路径: {actualPath}\n";
-        }
-        
-        message += $"\n默认路径（未指定时使用）:\n{defaultPath}\n\n";
-        message += $"平台特定路径:\n";
-        message += $"Windows: %userprofile%\\AppData\\LocalLow\\<CompanyName>\\<ProductName>\n";
-        message += $"Mac: ~/Library/Application Support/<CompanyName>/<ProductName>\n";
-        message += $"Linux: ~/.config/unity3d/<CompanyName>/<ProductName>";
-        
-        Debug.Log(message);
-    }
-
-    // ========== 脱轨日志记录方法 ==========
-    /// <summary>
-    /// 初始化脱轨日志文件
-    /// </summary>
-    private void InitializeDerailmentLogFile()
-    {
-        try
-        {
-            // 确定日志文件路径
-            if (!string.IsNullOrEmpty(derailmentLogPath))
-            {
-                if (Path.HasExtension(derailmentLogPath))
-                {
-                    // 用户指定了完整文件路径
-                    derailmentLogFilePath = derailmentLogPath;
-                }
-                else
-                {
-                    // 用户指定了目录路径
-                    string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-                    derailmentLogFilePath = Path.Combine(derailmentLogPath, fileName);
-                }
-            }
-            else
-            {
-                // 使用默认路径
-                string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
-                derailmentLogFilePath = Path.Combine(Application.persistentDataPath, fileName);
-            }
-            
-            // 确保目录存在
-            string directory = Path.GetDirectoryName(derailmentLogFilePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            
-            // 写入CSV头部（如果文件不存在）
-            if (!File.Exists(derailmentLogFilePath))
-            {
-                string header = "timestamp,episode_time,derailment_count," +
-                               "position_x,position_y,position_z," +
-                               "rotation_x,rotation_y,rotation_z," +
-                               "velocity_x,velocity_y,velocity_z," +
-                               "angular_velocity_y," +
-                               "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
-                               "front_center,rear_center,threshold," +
-                               "discrete_action," +
-                               "output_vx,output_omega," +
-                               "is_aligned,is_stable_aligned";
-                File.WriteAllText(derailmentLogFilePath, header + System.Environment.NewLine);
-                Debug.Log($"[DerailmentLog] 脱轨日志文件已初始化: {derailmentLogFilePath}");
-            }
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[DerailmentLog] 初始化脱轨日志文件失败: {e.Message}");
-            derailmentLogFilePath = null;
-        }
-    }
-    
-    /// <summary>
-    /// 记录脱轨信息
-    /// </summary>
-    private void RecordDerailment(float[] sensorValues, float frontCenter, float rearCenter, 
-                                  float threshold, int discreteAction, 
-                                  float outputVx, float outputOmega)
-    {
-        if (!enableDerailmentLogging || derailmentLogFilePath == null)
-        {
-            return;
-        }
-        
-        try
-        {
-            derailmentCount++;
-            
-            // 获取当前时间和位置信息
-            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-            Vector3 position = transform.position;
-            Vector3 rotation = transform.rotation.eulerAngles;
-            Vector3 velocity = rb != null ? rb.linearVelocity : Vector3.zero;
-            float angularVelocityY = rb != null ? rb.angularVelocity.y : 0f;
-            
-            // 构建CSV行
-            StringBuilder sb = new StringBuilder();
-            sb.Append(timestamp); sb.Append(",");
-            sb.Append(episodeTimer.ToString("F4")); sb.Append(",");
-            sb.Append(derailmentCount.ToString()); sb.Append(",");
-            
-            // 位置
-            sb.Append(position.x.ToString("F6")); sb.Append(",");
-            sb.Append(position.y.ToString("F6")); sb.Append(",");
-            sb.Append(position.z.ToString("F6")); sb.Append(",");
-            
-            // 旋转
-            sb.Append(rotation.x.ToString("F6")); sb.Append(",");
-            sb.Append(rotation.y.ToString("F6")); sb.Append(",");
-            sb.Append(rotation.z.ToString("F6")); sb.Append(",");
-            
-            // 速度
-            sb.Append(velocity.x.ToString("F6")); sb.Append(",");
-            sb.Append(velocity.y.ToString("F6")); sb.Append(",");
-            sb.Append(velocity.z.ToString("F6")); sb.Append(",");
-            
-            // 角速度
-            sb.Append(angularVelocityY.ToString("F6")); sb.Append(",");
-            
-            // 传感器值
-            for (int i = 0; i < 6; i++)
-            {
-                sb.Append((sensorValues != null && i < sensorValues.Length ? sensorValues[i] : 0f).ToString("F6"));
-                sb.Append(",");
-            }
-            
-            // 脱轨检测相关
-            sb.Append(frontCenter.ToString("F6")); sb.Append(",");
-            sb.Append(rearCenter.ToString("F6")); sb.Append(",");
-            sb.Append(threshold.ToString("F6")); sb.Append(",");
-            
-            // 离散动作
-            sb.Append(discreteAction.ToString()); sb.Append(",");
-            
-            // 输出
-            sb.Append(outputVx.ToString("F6")); sb.Append(",");
-            sb.Append(outputOmega.ToString("F6")); sb.Append(",");
-            
-            // 对齐状态
-            sb.Append(IsAligned ? "1" : "0"); sb.Append(",");
-            sb.Append(isStableAligned ? "1" : "0");
-            
-            // 添加到缓冲（批量写入，避免频繁I/O）
-            derailmentLogBuffer.Add(sb.ToString());
-            
-            // 打印到控制台（仅在启用调试日志时）
-            if (enableDebugLog)
-            {
-                Debug.Log($"[DerailmentLog] 脱轨记录 #{derailmentCount} | " +
-                         $"位置: ({position.x:F3}, {position.y:F3}, {position.z:F3}) | " +
-                         $"时间: {episodeTimer:F2}s | " +
-                         $"前中传感器: {frontCenter:F4} | " +
-                         $"后中传感器: {rearCenter:F4} | " +
-                         $"阈值: {threshold:F4}");
-            }
-            
-            // 如果缓冲达到阈值，批量写入
-            if (derailmentLogBuffer.Count >= derailmentLogBufferSize)
-            {
-                FlushDerailmentLog();
-            }
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[DerailmentLog] 记录脱轨信息失败: {e.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// 刷新脱轨日志缓冲（批量写入文件）
-    /// </summary>
-    private void FlushDerailmentLog()
-    {
-        if (derailmentLogBuffer.Count == 0 || derailmentLogFilePath == null)
-        {
-            return;
-        }
-
-        try
-        {
-            // 批量写入缓冲数据
-            StringBuilder batchContent = new StringBuilder(derailmentLogBuffer.Count * 200);  // 预估每行200字符
-            foreach (string line in derailmentLogBuffer)
-            {
-                batchContent.AppendLine(line);
-            }
-
-            File.AppendAllText(derailmentLogFilePath, batchContent.ToString());
-            
-            if (enableDebugLog)
-            {
-                Debug.Log($"[DerailmentLog] Flushed {derailmentLogBuffer.Count} records to file.");
-            }
-            
-            derailmentLogBuffer.Clear();
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[DerailmentLog] Failed to flush log buffer: {e.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 获取脱轨日志文件路径（用于调试或显示）
-    /// </summary>
-    public string GetDerailmentLogPath()
-    {
-        return derailmentLogFilePath ?? "未初始化";
-    }
-    
-    /// <summary>
-    /// 打印脱轨日志文件路径到控制台
-    /// </summary>
-    [ContextMenu("Print Derailment Log Path")]
-    public void PrintDerailmentLogPath()
-    {
-        string message = $"[DerailmentLog] 脱轨日志文件路径:\n";
-        if (derailmentLogFilePath != null)
-        {
-            message += $"{derailmentLogFilePath}\n";
-            message += $"脱轨次数: {derailmentCount}";
-        }
-        else
-        {
-            message += "未初始化（请确保 enableDerailmentLogging = true）";
-        }
-        Debug.Log(message);
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)

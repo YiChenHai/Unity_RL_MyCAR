@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using UnityEngine;
 
 /// <summary>
@@ -5,28 +8,26 @@ using UnityEngine;
 /// </summary>
 public class MyCar_StateDisplay : MonoBehaviour
 {
-    [Header("References")]
+    [Header("引用组件")]
     public MyCar_Motion myCarMotion;
-    public MyCarAgent myCarAgent;
+    public MyCarAgent myCarAgent;  // ML-Agents训练模式
+    public MyCar_Agent_DistillationTest myCarAgent_DistillationTest;  // 规则库控制模式
     public Rigidbody rb;
     public MagneticTape tape;
     [Tooltip("传感器顺序: [0]=前左, [1]=前中, [2]=前右, [3]=后左, [4]=后中, [5]=后右")]
     public Transform[] sensors = new Transform[6];
 
-    [Header("Display Settings")]
+    [Header("显示设置")]
     public bool showDebugInfo = true;
     [Tooltip("训练时自动禁用UI显示（提升性能，避免Unity窗口卡顿）")]
     public bool autoDisableInTraining = true;  // 训练时自动禁用UI
-    public bool showOutputCurves = true;  // 显示输出曲线开关
     public Vector2 displayPosition = new Vector2(10, 10);
     public Vector2 displaySize = new Vector2(500, 650);
     
-    [Header("Curve Display Settings")]
-    public int curveHistoryLength = 200;  // 曲线历史数据点数
-    public Vector2 curveAreaPosition = new Vector2(520, 10);
-    public Vector2 curveAreaSize = new Vector2(400, 250);
+    [Header("曲线显示设置")]
+    public int curveHistoryLength = 200;  // 曲线历史数据点数（用于动作索引/奖励曲线）
     
-    [Header("Action Index Display Settings")]
+    [Header("动作索引显示设置")]
     [Tooltip("是否显示动作索引折线图")]
     public bool showActionIndexCurve = true;
     [Tooltip("动作索引曲线显示位置")]
@@ -34,7 +35,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     [Tooltip("动作索引曲线显示大小")]
     public Vector2 actionCurveSize = new Vector2(400, 250);
     
-    [Header("Reward Display Settings")]
+    [Header("奖励显示设置")]
     [Tooltip("是否显示奖励信息")]
     public bool showRewardInfo = true;
     [Tooltip("奖励信息显示位置")]
@@ -45,19 +46,62 @@ public class MyCar_StateDisplay : MonoBehaviour
     public Vector2 rewardCurvePosition = new Vector2(520, 270);
     [Tooltip("奖励曲线显示大小")]
     public Vector2 rewardCurveSize = new Vector2(400, 200);
+    
+    [Header("蒸馏数据采集")]
+    [Tooltip("启用数据收集模式（在FixedUpdate中记录，避免延迟）")]
+    public bool enableDataCollection = false;
+    [Tooltip("是否记录脱轨终止的回合数据. false=不记录(推荐), true=记录所有回合")]
+    public bool recordDerailmentEpisodes = false;
+    [Tooltip("是否启用记录条数限制")]
+    public bool enableMaxSamplesLimit = false;
+    [Tooltip("目标采集数量(仅在启用限制时有效). 到达目标后停止写入")]
+    [Range(1, 1000000)]
+    public int maxDataSamples = 300000;
+    [Tooltip("内存缓冲区最大容量(防止内存溢出). 超过此数量时自动分批写入文件. 建议值: 10000-50000")]
+    [Range(1000, 100000)]
+    public int maxBufferSize = 20000;
+    [Tooltip("批量写入大小(每次写入的数据条数). 建议值: 5000-20000,过大可能导致写入阻塞")]
+    [Range(1000, 50000)]
+    public int batchWriteSize = 10000;
+    [Tooltip("CSV文件保存文件夹路径. 留空则使用默认路径Application.persistentDataPath. 文件会自动以日期命名training_data_yyyyMMdd_HHmmss.csv")]
+    public string customSavePath = "";
+    
+    [Header("脱轨日志记录")]
+    [Tooltip("是否启用脱轨日志记录(记录到文件)")]
+    public bool enableDerailmentLogging = true;
+    [Tooltip("脱轨日志文件保存路径(留空则使用默认路径)")]
+    public string derailmentLogPath = "";
+    [Tooltip("脱轨日志缓冲大小(达到此数量时批量写入). 建议值: 10-100,避免频繁写入")]
+    [Range(1, 500)]
+    public int derailmentLogBufferSize = 50;
 
     private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
     private static Texture2D _cyanTexture; // 青色图例颜色块
     private static Texture2D _magentaTexture; // 洋红色图例颜色块
-    
-    // 曲线数据缓冲区
-    private float[] _lateralSpeedHistory;
-    private float[] _angularSpeedHistory;
-    private int _historyIndex = 0;
+    private static Material _lineMaterial; // 用于GL绘制的静态材质，避免每帧创建
     
     // 动作索引历史记录
     private int[] _actionIndexHistory;
     private int _actionHistoryIndex = 0;
+    
+    // ========== 数据收集相关变量 ==========
+    private List<string> collectedData = new List<string>();
+    private int episodeDataCount = 0;
+    private int totalCollectedSamples = 0;
+    private string episodeDataFilePath = null;
+    private bool episodeDataHeaderWritten = false;
+    private bool episodeEndedByDerailment = false;
+    private bool wasDerailedLastFrame = false;  // 上一帧是否脱轨
+    
+    // 公开接口供外部访问（供DistillationHelper使用）
+    public int TotalCollectedSamples => totalCollectedSamples;
+    public int GetCollectedDataCount() => collectedData.Count;
+    public void FlushDataBuffer() => FlushDataBufferInternal();
+    
+    // ========== 脱轨日志相关变量 ==========
+    private string derailmentLogFilePath = null;
+    private int derailmentCount = 0;
+    private List<string> derailmentLogBuffer = new List<string>();
 
     void Start()
     {
@@ -68,12 +112,11 @@ public class MyCar_StateDisplay : MonoBehaviour
         if (myCarAgent == null)
             myCarAgent = GetComponent<MyCarAgent>();
         
+        if (myCarAgent_DistillationTest == null)
+            myCarAgent_DistillationTest = GetComponent<MyCar_Agent_DistillationTest>();
+        
         if (rb == null)
             rb = GetComponent<Rigidbody>();
-        
-        // 初始化曲线缓冲区
-        _lateralSpeedHistory = new float[curveHistoryLength];
-        _angularSpeedHistory = new float[curveHistoryLength];
         
         // 初始化动作索引历史记录
         _actionIndexHistory = new int[curveHistoryLength];
@@ -124,18 +167,6 @@ public class MyCar_StateDisplay : MonoBehaviour
             _bgTexture.Apply();
         }
         GUI.DrawTexture(new Rect(displayPosition.x, displayPosition.y, displaySize.x, displaySize.y), _bgTexture);
-
-        // 记录当前输出到历史缓冲区
-        if (myCarAgent != null)
-        {
-            _lateralSpeedHistory[_historyIndex] = myCarAgent.maxLateralSpeed > 0 
-                ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
-                : 0f;
-            _angularSpeedHistory[_historyIndex] = myCarAgent.maxOmegaDeg > 0 
-                ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
-                : 0f;
-            _historyIndex = (_historyIndex + 1) % curveHistoryLength;
-        }
 
         GUILayout.BeginArea(new Rect(displayPosition.x, displayPosition.y, displaySize.x, displaySize.y));
         GUILayout.Box("Vehicle & Wheel Info", GUILayout.Width(displaySize.x - 20));
@@ -393,12 +424,6 @@ public class MyCar_StateDisplay : MonoBehaviour
         }
 
         GUILayout.EndArea();
-
-        // ========== 绘制输出曲线 ==========
-        if (showOutputCurves && myCarAgent != null)
-        {
-            DrawOutputCurves();
-        }
         
         // ========== 绘制动作索引折线图 ==========
         if (showActionIndexCurve && myCarAgent != null)
@@ -424,203 +449,156 @@ public class MyCar_StateDisplay : MonoBehaviour
             _actionHistoryIndex = (_actionHistoryIndex + 1) % curveHistoryLength;
         }
     }
-
-    /// <summary>
-    /// 绘制智能体输出的横向速度和角速度曲线
-    /// </summary>
-    void DrawOutputCurves()
-    {
-        Rect curveRect = new Rect(curveAreaPosition.x, curveAreaPosition.y, curveAreaSize.x, curveAreaSize.y);
-        
-        // 绘制背景
-        GUI.DrawTexture(curveRect, _bgTexture);
-        
-        // 绘制边框
-        GUI.Box(curveRect, "Agent Output Curves");
-        
-        // 绘制图例（在标题下方）
-        DrawCurveLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
-        
-        // 内部绘制区域（留出边距，为图例留出空间）
-        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 45, curveRect.width - 20, curveRect.height - 55);
-        
-        // 绘制网格和曲线
-        DrawCurveGraph(innerRect);
-    }
-
-    void DrawCurveGraph(Rect graphRect)
-    {
-        // 获取当前值（正规化到 -1 ~ 1）
-        float currentLateralNorm = myCarAgent.maxLateralSpeed > 0 
-            ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
-            : 0f;
-        float currentAngularNorm = myCarAgent.maxOmegaDeg > 0 
-            ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
-            : 0f;
-        
-        // 绘制坐标轴和网格
-        DrawGraphGrid(graphRect);
-        
-        // 绘制两条曲线（需要先clamp值）
-        DrawCurveLineWithColor(graphRect, _lateralSpeedHistory, Color.cyan, "Lateral Vx");
-        DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta, "Angular ω");
-        
-        // 绘制当前值标签（在图表底部）
-        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 11,
-            normal = { textColor = Color.white }
-        };
-        
-        float labelX = graphRect.x + 10;
-        float labelY = graphRect.yMax + 5;
-
-        // 真实物理量（未归一化）：Vx 为 m/s，omega 为 deg/s
-        float currentLateralReal = myCarMotion.vx_input;
-        float currentAngularReal = myCarMotion.omega_input * Mathf.Rad2Deg;
-        
-        GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
-        // 第一行：归一化后的比例（-1~1），和动作输出同尺度
-        GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
-        // 第二行：真实物理单位
-        GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", labelStyle);
-        GUILayout.EndArea();
-    }
-
-    void DrawGraphGrid(Rect graphRect)
-    {
-        // 绘制Y轴刻度和标签
-        DrawYAxisLabels(graphRect);
-        
-        // 绘制中心线（0值）
-        DrawLine(new Vector2(graphRect.x, graphRect.center.y), new Vector2(graphRect.xMax, graphRect.center.y), Color.gray);
-        
-        // 绘制 ±1 线
-        float topY = graphRect.y + graphRect.height * 0.1f;  // +1
-        float bottomY = graphRect.yMax - graphRect.height * 0.1f;  // -1
-        Color gridColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
-        DrawLine(new Vector2(graphRect.x, topY), new Vector2(graphRect.xMax, topY), gridColor);
-        DrawLine(new Vector2(graphRect.x, bottomY), new Vector2(graphRect.xMax, bottomY), gridColor);
-        
-        // 绘制 ±0.5 虚线
-        float midTopY = graphRect.center.y - graphRect.height * 0.25f;  // +0.5
-        float midBottomY = graphRect.center.y + graphRect.height * 0.25f;  // -0.5
-        Color faintGridColor = new Color(0.5f, 0.5f, 0.5f, 0.3f);
-        DrawLine(new Vector2(graphRect.x, midTopY), new Vector2(graphRect.xMax, midTopY), faintGridColor);
-        DrawLine(new Vector2(graphRect.x, midBottomY), new Vector2(graphRect.xMax, midBottomY), faintGridColor);
-    }
     
-    void DrawYAxisLabels(Rect graphRect)
+    void FixedUpdate()
     {
-        // Y轴刻度值
-        float[] values = { 1f, 0.5f, 0f, -0.5f, -1f };
+        // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
+        bool useTrainingMode = myCarAgent != null;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
         
-        GUIStyle scaleStyle = new GUIStyle(GUI.skin.label)
+        // ========== 数据收集（在FixedUpdate中执行，避免延迟） ==========
+        if (enableDataCollection && (useTrainingMode || useDistillationMode))
         {
-            fontSize = 10,
-            normal = { textColor = Color.gray },
-            alignment = TextAnchor.MiddleRight
-        };
-        
-        foreach (float val in values)
-        {
-            // 计算Y坐标：val = 1 在上面，val = -1 在下面
-            float screenY = graphRect.center.y - val * (graphRect.height / 2);
-            screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
-            
-            // 绘制标签（在图表左侧外部）
-            Rect labelRect = new Rect(graphRect.x - 40, screenY - 10, 35, 20);
-            GUI.Label(labelRect, val.ToString("F1"), scaleStyle);
-        }
-    }
-
-    /// <summary>
-    /// 绘制图例，标明哪条曲线是哪个
-    /// </summary>
-    void DrawCurveLegend(Rect legendRect)
-    {
-        GUIStyle legendStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 11,
-            normal = { textColor = Color.white },
-            fontStyle = FontStyle.Bold
-        };
-        
-        // 绘制横向速度图例（青色）
-        Color cyanColor = Color.cyan;
-        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), cyanColor, "横向速度 (Vx)", legendStyle);
-        
-        // 绘制角速度图例（洋红色）
-        Color magentaColor = Color.magenta;
-        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), magentaColor, "角速度 (ω)", legendStyle);
-    }
-    
-    /// <summary>
-    /// 绘制单个图例项（颜色块 + 文字）
-    /// </summary>
-    void DrawLegendItem(Rect rect, Color color, string label, GUIStyle style)
-    {
-        // 绘制颜色块（小方块）
-        Rect colorRect = new Rect(rect.x, rect.y + 2, 12, 12);
-        Texture2D colorTex = null;
-        
-        // 使用预创建的纹理（避免每帧创建）
-        if (color == Color.cyan && _cyanTexture != null)
-            colorTex = _cyanTexture;
-        else if (color == Color.magenta && _magentaTexture != null)
-            colorTex = _magentaTexture;
-        else
-        {
-            // 如果颜色不匹配，创建临时纹理
-            colorTex = new Texture2D(1, 1);
-            colorTex.SetPixel(0, 0, color);
-            colorTex.Apply();
+            // 检查是否达到目标数量
+            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+            {
+                enableDataCollection = false;
+                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
+            }
+            else if (enableMaxSamplesLimit)
+            {
+                // 检查剩余可采集数量
+                int remaining = maxDataSamples - totalCollectedSamples - collectedData.Count;
+                if (remaining <= 0)
+                {
+                    enableDataCollection = false;
+                    Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), stop collecting.");
+                }
+                else
+                {
+                    RecordSample();
+                    episodeDataCount++;
+                }
+            }
+            else
+            {
+                // 无限制，正常采集
+                RecordSample();
+                episodeDataCount++;
+            }
         }
         
-        if (colorTex != null)
-            GUI.DrawTexture(colorRect, colorTex);
-        
-        // 绘制文字标签
-        Rect labelRect = new Rect(rect.x + 16, rect.y, rect.width - 16, rect.height);
-        style.normal.textColor = color;
-        GUI.Label(labelRect, label, style);
-    }
-
-    void DrawCurveLineWithColor(Rect graphRect, float[] data, Color color, string label)
-    {
-        if (data == null || data.Length < 2) return;
-        
-        for (int i = 0; i < data.Length - 1; i++)
+        // ========== 脱轨检测和记录（支持两种控制模式） ==========
+        if (enableDerailmentLogging && tape != null && sensors != null && sensors.Length >= 6)
         {
-            // 计算实际的数组索引（考虑环形缓冲）
-            int idx1 = (_historyIndex + i) % data.Length;
-            int idx2 = (_historyIndex + i + 1) % data.Length;
+            // 读取传感器数据
+            float[] sensorValues = new float[6];
+            for (int i = 0; i < sensors.Length; i++)
+            {
+                if (sensors[i] != null && tape != null)
+                {
+                    Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                    sensorValues[i] = mag.magnitude;
+                }
+            }
             
-            // 将值 [-1, 1] 映射到屏幕坐标（严格clamp）
-            float value1 = Mathf.Clamp(data[idx1], -1f, 1f);
-            float value2 = Mathf.Clamp(data[idx2], -1f, 1f);
+            float frontCenter = sensorValues[1];  // 前中
+            float rearCenter = sensorValues[4];   // 后中
             
-            float screenX1 = graphRect.x + (i / (float)(data.Length - 1)) * graphRect.width;
-            float screenX2 = graphRect.x + ((i + 1) / (float)(data.Length - 1)) * graphRect.width;
+            // 获取maxField（根据当前使用的控制模式）
+            float maxFieldValue = 8f;  // 默认值
+            if (useTrainingMode)
+            {
+                maxFieldValue = myCarAgent.maxField;
+            }
+            else if (useDistillationMode)
+            {
+                maxFieldValue = myCarAgent_DistillationTest.maxField;
+            }
             
-            // 反转Y轴：上 = +1，下 = -1
-            // 计算方式：graphRect.center.y 是 0 点，向上正，向下负
-            float screenY1 = graphRect.center.y - value1 * (graphRect.height / 2);
-            float screenY2 = graphRect.center.y - value2 * (graphRect.height / 2);
+            float derailThresholdValue = maxFieldValue * 0.18f;  // 18%最大磁场强度
             
-            // 二次clamp确保在范围内（不应该超过）
-            screenY1 = Mathf.Clamp(screenY1, graphRect.y, graphRect.yMax);
-            screenY2 = Mathf.Clamp(screenY2, graphRect.y, graphRect.yMax);
+            // 取两个中心传感器的最小值
+            float minCenter = Mathf.Min(frontCenter, rearCenter);
             
-            DrawLine(new Vector2(screenX1, screenY1), new Vector2(screenX2, screenY2), color);
+            // 检测脱轨
+            bool isDerailed = minCenter < derailThresholdValue;
+            
+            // 如果刚脱轨（上一帧未脱轨，当前帧脱轨），记录脱轨信息
+            if (isDerailed && !wasDerailedLastFrame)
+            {
+                RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue);
+            }
+            
+            wasDerailedLastFrame = isDerailed;
         }
     }
     
+    void OnEnable()
+    {
+        // 初始化脱轨日志文件（如果启用）
+        if (enableDerailmentLogging && derailmentLogFilePath == null)
+        {
+            InitializeDerailmentLogFile();
+        }
+    }
+    
+    void OnDisable()
+    {
+        // 回合结束时刷新数据缓冲
+        if (collectedData.Count > 0)
+        {
+            bool shouldSave = recordDerailmentEpisodes || !episodeEndedByDerailment;
+            if (shouldSave)
+            {
+                FlushDataBuffer();
+                Debug.Log($"[DataCollection] 回合数据已保存，样本数: {collectedData.Count}");
+            }
+            collectedData.Clear();
+            episodeDataCount = 0;
+        }
+        
+        // 刷新脱轨日志缓冲
+        if (enableDerailmentLogging && derailmentLogBuffer.Count > 0)
+        {
+            FlushDerailmentLog();
+        }
+        
+        episodeEndedByDerailment = false;
+        wasDerailedLastFrame = false;
+    }
+
+    
     /// <summary>
-    /// 使用 GL 绘制直线（运行时用）
+    /// 使用 GL 绘制直线（运行时用，使用静态材质避免频繁创建对象）
     /// </summary>
     void DrawLine(Vector2 start, Vector2 end, Color color)
     {
+        // 只在重绘事件中绘制，避免在Layout等事件中调用GL
+        if (Event.current != null && Event.current.type != EventType.Repaint)
+        {
+            return;
+        }
+
+        // 延迟创建静态材质
+        if (_lineMaterial == null)
+        {
+            Shader shader = Shader.Find("Hidden/Internal-Colored");
+            if (shader == null)
+            {
+                return;
+            }
+
+            _lineMaterial = new Material(shader);
+            _lineMaterial.hideFlags = HideFlags.HideAndDontSave;
+
+            // 设置基础渲染参数（透明混合、不写深度、无背面剔除）
+            _lineMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _lineMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            _lineMaterial.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+            _lineMaterial.SetInt("_ZWrite", 0);
+        }
+
         GL.PushMatrix();
         GL.LoadOrtho();
         
@@ -634,8 +612,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         start.y = 1f - start.y;
         end.y = 1f - end.y;
         
-        var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
-        mat.SetPass(0);
+        _lineMaterial.SetPass(0);
         
         GL.Begin(GL.LINES);
         GL.Color(color);
@@ -968,6 +945,406 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             Destroy(_magentaTexture);
             _magentaTexture = null;
+        }
+        if (_lineMaterial != null)
+        {
+            Destroy(_lineMaterial);
+            _lineMaterial = null;
+        }
+        
+        // 清理数据收集缓冲
+        if (collectedData.Count > 0)
+        {
+            FlushDataBuffer();
+        }
+        
+        // 清理脱轨日志缓冲
+        if (derailmentLogBuffer.Count > 0)
+        {
+            FlushDerailmentLog();
+        }
+    }
+    
+    // ========== 数据收集方法 ==========
+    private void RecordSample()
+    {
+        // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
+        bool useTrainingMode = myCarAgent != null;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
+        
+        if ((!useTrainingMode && !useDistillationMode) || tape == null || sensors == null || sensors.Length < 6)
+            return;
+        
+        // 获取控制参数（根据当前使用的控制模式）
+        float maxFieldValue = 8f;
+        float constantForwardSpeed = 0.2f;
+        float maxLateralSpeed = 0.15f;
+        float maxOmegaDeg = 80f;
+        int previousDiscreteAction = 5;
+        int currentDiscreteAction = 5;
+        
+        if (useTrainingMode)
+        {
+            maxFieldValue = myCarAgent.maxField;
+            constantForwardSpeed = myCarAgent.constantForwardSpeed;
+            maxLateralSpeed = myCarAgent.maxLateralSpeed;
+            maxOmegaDeg = myCarAgent.maxOmegaDeg;
+            previousDiscreteAction = myCarAgent.PreviousDiscreteAction;
+            currentDiscreteAction = myCarAgent.CurrentDiscreteAction;
+        }
+        else if (useDistillationMode)
+        {
+            maxFieldValue = myCarAgent_DistillationTest.maxField;
+            constantForwardSpeed = myCarAgent_DistillationTest.constantForwardSpeed;
+            maxLateralSpeed = myCarAgent_DistillationTest.maxLateralSpeed;
+            maxOmegaDeg = myCarAgent_DistillationTest.maxOmegaDeg;
+            previousDiscreteAction = myCarAgent_DistillationTest.PreviousDiscreteAction;
+            currentDiscreteAction = myCarAgent_DistillationTest.CurrentDiscreteAction;
+        }
+        
+        // 重新计算观测（与MyCar_Agent的CollectObservations逻辑相同，10维）
+        List<float> observations = new List<float>();
+
+        // 1-6: 六个传感器的归一化强度
+        float[] sensorValues = new float[6];
+        for (int i = 0; i < sensors.Length; i++)
+        {
+            if (sensors[i] != null && tape != null)
+            {
+                Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                sensorValues[i] = mag.magnitude;
+                observations.Add(Mathf.Clamp01(mag.magnitude / Mathf.Max(1e-9f, maxFieldValue)));
+            }
+            else observations.Add(0f);
+        }
+
+        // 7: 上次输出状态（离散动作索引归一化到0-1范围）
+        float lastActionState = previousDiscreteAction / 10f;
+        observations.Add(lastActionState);
+
+        // 8-10: 实际运动状态（物理反馈）
+        Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
+        float angularVel = rb != null ? rb.angularVelocity.y : 0f;
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
+        observations.Add(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 8: 实际前进速度
+        observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 9: 实际横向速度
+        observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 10: 实际角速度
+
+        // 构建CSV行：10维特征 + 1维目标（离散动作索引）
+        StringBuilder sb = new StringBuilder();
+        
+        // 写入10维特征（浮点数，保留6位小数）
+        for (int i = 0; i < observations.Count; i++)
+        {
+            sb.Append(observations[i].ToString("F6"));
+            if (i < observations.Count - 1)
+            {
+                sb.Append(",");
+            }
+        }
+        
+        // 写入目标：离散动作索引（整数，0-10）
+        sb.Append(",");
+        sb.Append(currentDiscreteAction.ToString());
+        
+        collectedData.Add(sb.ToString());
+        
+        // 内存保护：如果缓冲区超过最大容量，自动分批写入
+        if (collectedData.Count >= maxBufferSize)
+        {
+            FlushDataBuffer();
+        }
+    }
+
+    private string GetSaveDirectory()
+    {
+        if (!string.IsNullOrEmpty(customSavePath))
+        {
+            if (Path.HasExtension(customSavePath))
+            {
+                string dir = Path.GetDirectoryName(customSavePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Debug.LogWarning($"[DataCollection] customSavePath应该是目录路径，检测到文件路径，已提取目录: {dir}");
+                    return dir;
+                }
+            }
+            return customSavePath;
+        }
+        return Application.persistentDataPath;
+    }
+
+    private string GetFullFilePath(string fileName)
+    {
+        string directory = GetSaveDirectory();
+        return Path.Combine(directory, fileName);
+    }
+
+    private void InitializeDataFileIfNeeded()
+    {
+        if (episodeDataFilePath != null)
+        {
+            return;
+        }
+
+        string fileName = $"training_data_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        episodeDataFilePath = GetFullFilePath(fileName);
+        episodeDataHeaderWritten = false;
+        
+        string directory = GetSaveDirectory();
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[DataCollection] Failed to create directory: {directory}\nError: {e.Message}");
+                episodeDataFilePath = null;
+            }
+        }
+    }
+
+    private void FlushDataBufferInternal()
+    {
+        if (collectedData.Count == 0)
+        {
+            return;
+        }
+
+        InitializeDataFileIfNeeded();
+        if (episodeDataFilePath == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
+            {
+                string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
+                               "last_action_state," +
+                               "actual_vz,actual_vx,actual_omega," +
+                               "discrete_action";
+                File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
+                episodeDataHeaderWritten = true;
+            }
+
+            int remainingInBuffer = collectedData.Count;
+            int remainingInTarget = enableMaxSamplesLimit ? (maxDataSamples - totalCollectedSamples) : int.MaxValue;
+            int writeCount = Mathf.Min(remainingInBuffer, batchWriteSize, remainingInTarget);
+
+            if (writeCount <= 0)
+            {
+                if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+                {
+                    enableDataCollection = false;
+                    Debug.Log($"[DataCollection] Target samples ({maxDataSamples}) reached, collection stopped.");
+                }
+                return;
+            }
+
+            StringBuilder batchContent = new StringBuilder(writeCount * 100);
+            for (int i = 0; i < writeCount; i++)
+            {
+                batchContent.AppendLine(collectedData[i]);
+            }
+
+            File.AppendAllText(episodeDataFilePath, batchContent.ToString());
+            collectedData.RemoveRange(0, writeCount);
+            totalCollectedSamples += writeCount;
+
+            if (enableMaxSamplesLimit && totalCollectedSamples >= maxDataSamples)
+            {
+                enableDataCollection = false;
+                collectedData.Clear();
+                Debug.Log($"[DataCollection] Reached target samples ({maxDataSamples}), collection stopped.");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DataCollection] Failed to flush data buffer: {e.Message}");
+        }
+    }
+    
+    // ========== 脱轨日志记录方法 ==========
+    private void InitializeDerailmentLogFile()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(derailmentLogPath))
+            {
+                if (Path.HasExtension(derailmentLogPath))
+                {
+                    derailmentLogFilePath = derailmentLogPath;
+                }
+                else
+                {
+                    string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+                    derailmentLogFilePath = Path.Combine(derailmentLogPath, fileName);
+                }
+            }
+            else
+            {
+                string fileName = $"derailment_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
+                derailmentLogFilePath = Path.Combine(Application.persistentDataPath, fileName);
+            }
+            
+            string directory = Path.GetDirectoryName(derailmentLogFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            
+            if (!File.Exists(derailmentLogFilePath))
+            {
+                string header = "timestamp,episode_time,derailment_count," +
+                               "position_x,position_y,position_z," +
+                               "rotation_x,rotation_y,rotation_z," +
+                               "velocity_x,velocity_y,velocity_z," +
+                               "angular_velocity_y," +
+                               "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
+                               "front_center,rear_center,threshold," +
+                               "discrete_action," +
+                               "output_vx,output_omega," +
+                               "is_aligned,is_stable_aligned";
+                File.WriteAllText(derailmentLogFilePath, header + System.Environment.NewLine);
+                Debug.Log($"[DerailmentLog] 脱轨日志文件已初始化: {derailmentLogFilePath}");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] 初始化脱轨日志文件失败: {e.Message}");
+            derailmentLogFilePath = null;
+        }
+    }
+    
+    private void RecordDerailment(float[] sensorValues, float frontCenter, float rearCenter, float threshold)
+    {
+        if (!enableDerailmentLogging || derailmentLogFilePath == null)
+        {
+            return;
+        }
+        
+        // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
+        bool useTrainingMode = myCarAgent != null;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
+        
+        if (!useTrainingMode && !useDistillationMode)
+        {
+            return;
+        }
+        
+        try
+        {
+            derailmentCount++;
+            episodeEndedByDerailment = true;
+            
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            Vector3 position = transform.position;
+            Vector3 rotation = transform.rotation.eulerAngles;
+            Vector3 velocity = rb != null ? rb.linearVelocity : Vector3.zero;
+            float angularVelocityY = rb != null ? rb.angularVelocity.y : 0f;
+            
+            // 获取控制脚本的状态信息
+            float episodeTimer = 0f;
+            int currentDiscreteAction = 5;
+            float lastOutputLateralSpeed = 0f;
+            float lastOutputAngularSpeed = 0f;
+            bool isAligned = false;
+            bool isStableAligned = false;
+            
+            if (useTrainingMode)
+            {
+                episodeTimer = myCarAgent.EpisodeTimer;
+                currentDiscreteAction = myCarAgent.CurrentDiscreteAction;
+                lastOutputLateralSpeed = myCarAgent.LastOutputLateralSpeed;
+                lastOutputAngularSpeed = myCarAgent.LastOutputAngularSpeed;
+                isAligned = myCarAgent.IsAligned;
+                isStableAligned = myCarAgent.IsStableAligned;
+            }
+            else if (useDistillationMode)
+            {
+                episodeTimer = myCarAgent_DistillationTest.EpisodeTimer;
+                currentDiscreteAction = myCarAgent_DistillationTest.CurrentDiscreteAction;
+                lastOutputLateralSpeed = myCarAgent_DistillationTest.LastOutputLateralSpeed;
+                lastOutputAngularSpeed = myCarAgent_DistillationTest.LastOutputAngularSpeed;
+                isAligned = myCarAgent_DistillationTest.IsAligned;
+                isStableAligned = myCarAgent_DistillationTest.IsStableAligned;
+            }
+            
+            StringBuilder sb = new StringBuilder();
+            sb.Append(timestamp); sb.Append(",");
+            sb.Append(episodeTimer.ToString("F4")); sb.Append(",");
+            sb.Append(derailmentCount.ToString()); sb.Append(",");
+            
+            sb.Append(position.x.ToString("F6")); sb.Append(",");
+            sb.Append(position.y.ToString("F6")); sb.Append(",");
+            sb.Append(position.z.ToString("F6")); sb.Append(",");
+            
+            sb.Append(rotation.x.ToString("F6")); sb.Append(",");
+            sb.Append(rotation.y.ToString("F6")); sb.Append(",");
+            sb.Append(rotation.z.ToString("F6")); sb.Append(",");
+            
+            sb.Append(velocity.x.ToString("F6")); sb.Append(",");
+            sb.Append(velocity.y.ToString("F6")); sb.Append(",");
+            sb.Append(velocity.z.ToString("F6")); sb.Append(",");
+            
+            sb.Append(angularVelocityY.ToString("F6")); sb.Append(",");
+            
+            for (int i = 0; i < 6; i++)
+            {
+                sb.Append((sensorValues != null && i < sensorValues.Length ? sensorValues[i] : 0f).ToString("F6"));
+                sb.Append(",");
+            }
+            
+            sb.Append(frontCenter.ToString("F6")); sb.Append(",");
+            sb.Append(rearCenter.ToString("F6")); sb.Append(",");
+            sb.Append(threshold.ToString("F6")); sb.Append(",");
+            
+            sb.Append(currentDiscreteAction.ToString()); sb.Append(",");
+            
+            sb.Append(lastOutputLateralSpeed.ToString("F6")); sb.Append(",");
+            sb.Append(lastOutputAngularSpeed.ToString("F6")); sb.Append(",");
+            
+            sb.Append(isAligned ? "1" : "0"); sb.Append(",");
+            sb.Append(isStableAligned ? "1" : "0");
+            
+            derailmentLogBuffer.Add(sb.ToString());
+            
+            if (derailmentLogBuffer.Count >= derailmentLogBufferSize)
+            {
+                FlushDerailmentLog();
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] 记录脱轨信息失败: {e.Message}");
+        }
+    }
+    
+    private void FlushDerailmentLog()
+    {
+        if (derailmentLogBuffer.Count == 0 || derailmentLogFilePath == null)
+        {
+            return;
+        }
+
+        try
+        {
+            StringBuilder batchContent = new StringBuilder(derailmentLogBuffer.Count * 200);
+            foreach (string line in derailmentLogBuffer)
+            {
+                batchContent.AppendLine(line);
+            }
+
+            File.AppendAllText(derailmentLogFilePath, batchContent.ToString());
+            derailmentLogBuffer.Clear();
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[DerailmentLog] Failed to flush log buffer: {e.Message}");
         }
     }
 }
