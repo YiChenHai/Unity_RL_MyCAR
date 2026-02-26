@@ -88,27 +88,27 @@ public class MyCarAgent : Agent
 
     [Header("3. 平稳性奖励 (Smoothness Reward)")]
     [Tooltip("动作索引差值0的奖励值(动作保持不变). 差值0-2为奖励值,差值3-10为惩罚值")]
-    public float diff0Reward = 0.3f;
+    public float diff0Reward = 0.8f;
     [Tooltip("差值1的奖励值(相邻动作切换)")]
-    public float diff1Reward = 0.15f;
+    public float diff1Reward = 0.5f;
     [Tooltip("差值2的奖励值(界限值奖励为0)")]
-    public float diff2Reward = 0f;
+    public float diff2Reward = -0.3f;
     [Tooltip("差值3的惩罚值")]
-    public float diff3Penalty = -0.15f;
+    public float diff3Penalty = -0.5f;
     [Tooltip("差值4的惩罚值")]
-    public float diff4Penalty = -0.3f;
+    public float diff4Penalty = -0.8f;
     [Tooltip("差值5的惩罚值")]
-    public float diff5Penalty = -0.45f;
+    public float diff5Penalty = -1.0f;
     [Tooltip("差值6的惩罚值")]
-    public float diff6Penalty = -0.6f;
+    public float diff6Penalty = -1.5f;
     [Tooltip("差值7的惩罚值")]
-    public float diff7Penalty = -0.75f;
+    public float diff7Penalty = -1.8f;
     [Tooltip("差值8的惩罚值")]
-    public float diff8Penalty = -0.85f;
+    public float diff8Penalty = -2.1f;
     [Tooltip("差值9的惩罚值")]
-    public float diff9Penalty = -0.95f;
+    public float diff9Penalty = -2.5f;
     [Tooltip("差值10的惩罚值(最大差值)")]
-    public float diff10Penalty = -1.0f;
+    public float diff10Penalty = -3.0f;
 
 
     [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
@@ -857,7 +857,7 @@ public class MyCarAgent : Agent
                 smoothnessReward = diff4Penalty;
                 break;
             case 5:
-                smoothnessReward = diff5Penalty;
+                smoothnessReward = diff5Penalty; //急转弯
                 break;
             case 6:
                 smoothnessReward = diff6Penalty;
