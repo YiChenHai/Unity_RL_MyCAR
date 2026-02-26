@@ -1,5 +1,5 @@
 behaviors:
-  MagneticTrackingAgentCar_V1.0_Lisan_260218:
+  MagneticTrackingAgentCar_V1.0_Lisan_260226:
     trainer_type: ppo
     hyperparameters:
       batch_size: 2048

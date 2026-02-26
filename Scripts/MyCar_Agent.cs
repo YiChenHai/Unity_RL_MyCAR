@@ -86,29 +86,23 @@ public class MyCarAgent : Agent
     [Tooltip("速度惩罚阈值(20%). 速度<此阈值时返回-2.0(大惩罚). 在此阈值和speedHighPercent之间时线性插值")]
     public float speedLowPercent = 0.20f;
 
-    [Header("3. 平稳性奖励 (Smoothness Reward)")]
-    [Tooltip("动作索引差值0的奖励值(动作保持不变). 差值0-2为奖励值,差值3-10为惩罚值")]
-    public float diff0Reward = 0.8f;
-    [Tooltip("差值1的奖励值(相邻动作切换)")]
-    public float diff1Reward = 0.5f;
-    [Tooltip("差值2的奖励值(界限值奖励为0)")]
-    public float diff2Reward = -0.3f;
-    [Tooltip("差值3的惩罚值")]
-    public float diff3Penalty = -0.5f;
-    [Tooltip("差值4的惩罚值")]
-    public float diff4Penalty = -0.8f;
-    [Tooltip("差值5的惩罚值")]
-    public float diff5Penalty = -1.0f;
-    [Tooltip("差值6的惩罚值")]
-    public float diff6Penalty = -1.5f;
-    [Tooltip("差值7的惩罚值")]
-    public float diff7Penalty = -1.8f;
-    [Tooltip("差值8的惩罚值")]
-    public float diff8Penalty = -2.1f;
-    [Tooltip("差值9的惩罚值")]
-    public float diff9Penalty = -2.5f;
-    [Tooltip("差值10的惩罚值(最大差值)")]
-    public float diff10Penalty = -3.0f;
+    [Header("3. 趋势一致性奖励 (Trend Consistency)")]
+    [Tooltip("是否启用趋势一致性奖励（抑制动作增长率正负跳变）")]
+    public bool enableTrendConsistencyReward = true;
+    [Tooltip("动作增长率异号翻转的惩罚值（越大越抑制左右/强弱来回跳）")]
+    public float directionFlipPenalty = 0.6f;
+    [Tooltip("动作幅度向中心(Forward=5)收敛时的奖励")]
+    public float returnToCenterBonus = 0.08f;
+    [Tooltip("动作幅度远离中心(Forward=5)时的惩罚")]
+    public float moveAwayFromCenterPenalty = 0.12f;
+    [Tooltip("判定有效变化的最小阈值（避免直行附近的小抖动误判）")]
+    public float trendEpsilon = 1.1f;
+    [Tooltip("直接跨越到另一侧转向（左↔右）的额外惩罚")]
+    public float oppositeTurnPenalty = 0.25f;
+    [Tooltip("首次进入非对齐状态时，若立即输出转弯动作给予奖励")]
+    public float enterNonAlignedTurnBonus = 0.25f;
+    [Tooltip("首次进入非对齐状态时，若继续输出直行动作给予惩罚")]
+    public float enterNonAlignedForwardPenalty = 0.25f;
 
 
     [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
@@ -142,8 +136,7 @@ public class MyCarAgent : Agent
     {
         public float alignmentReward;      // 对齐奖励
         public float speedCoefficient;      // 速度系数
-        public float smoothnessReward;     // 平稳性奖励
-        public float turningReward;        // 转弯奖励
+        public float trendConsistencyReward; // 趋势一致性奖励
         public float straightOutputPenalty; // 直线输出限制惩罚
         public float straightOutputPenaltyPercent; // 直线输出惩罚百分比（0-100%）
         public float totalReward;          // 总奖励（乘以dt前）
@@ -170,6 +163,10 @@ public class MyCarAgent : Agent
     public bool IsAligned { get; private set; }          // 当前是否对齐
     public bool IsStableAligned => isStableAligned;      // 当前是否稳定对齐
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
+    // 非对齐阶段内动作历史（趋势奖励仅使用这组数据）
+    private int nonAlignedStepCount = 0;
+    private int nonAlignedLastAction = (int)DiscreteAction.Forward;
+    private int nonAlignedPrevAction = (int)DiscreteAction.Forward;
     
     // 公开动作状态供外部访问（如UI显示）
     public int CurrentDiscreteAction => lastDiscreteAction;  // 当前输出的离散动作索引（0-10）
@@ -183,10 +180,6 @@ public class MyCarAgent : Agent
     // 动作记忆（用于观察空间）
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
-    private float prevLateralSpeed = 0f;        // 前一帧的横向速度（用于平稳性计算）
-    private float prevAngularSpeed = 0f;        // 前一帧的角速度（用于平稳性计算）
-    private float lastRawLateralAction = 0f;    // 上一帧的原始神经网络输出（横向速度比例）
-    private float lastRawAngularAction = 0f;    // 上一帧的原始神经网络输出（角速度比例）
     private int lastDiscreteAction = 0;         // 上一帧的离散动作索引（用于观察空间）
     private int prevDiscreteAction = 0;         // 前一帧的离散动作索引（用于平稳性奖励计算）
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
@@ -409,15 +402,15 @@ public class MyCarAgent : Agent
 
         episodeTimer = 0f;
         alignedTimer = 0f;
+        IsAligned = false;
         isStableAligned = false;
+        nonAlignedStepCount = 0;
+        nonAlignedLastAction = (int)DiscreteAction.Forward;
+        nonAlignedPrevAction = (int)DiscreteAction.Forward;
         lastOutputLateralSpeed = 0f;
         lastOutputAngularSpeed = 0f;
-        prevLateralSpeed = 0f;
-        prevAngularSpeed = 0f;
         smoothedLateralSpeed = 0f;  // 初始化平滑缓冲
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
-        lastRawLateralAction = 0f;  // 初始化原始动作
-        lastRawAngularAction = 0f;  // 初始化原始动作
         lastDiscreteAction = (int)DiscreteAction.Forward;  // 初始化离散动作为Forward(5)
         prevDiscreteAction = (int)DiscreteAction.Forward;  // 初始化前一帧离散动作为Forward(5)
         
@@ -462,13 +455,13 @@ public class MyCarAgent : Agent
         sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 10: 实际角速度
     }
 
-    public override void OnActionReceived(ActionBuffers actions) 
+    public override void OnActionReceived(ActionBuffers actions)
     { 
         float a_x, a_w;
         int discreteAction = 0;
         
         // 强制使用离散动作空间（方案C）
-        // 从离散动作空间读取动作（0-6）
+        // 从离散动作空间读取动作（0-10）
         discreteAction = actions.DiscreteActions[0];
         
         // 边界检查：确保动作索引在有效范围内（0-10）
@@ -478,10 +471,6 @@ public class MyCarAgent : Agent
         MapDiscreteActionToContinuous(discreteAction, out a_x, out a_w);
         
         // 注意：lastDiscreteAction 将在计算奖励后更新，用于下一帧观察
-
-        // 保存原始动作用于下一帧观察（供平滑延迟感知）
-        lastRawLateralAction = a_x;
-        lastRawAngularAction = a_w;
 
         // ========== 应用指数平滑滤波减少震荡 ==========
         // 指数平滑：smoothed = α·raw + (1-α)·smoothed_prev
@@ -504,7 +493,9 @@ public class MyCarAgent : Agent
         }
 
         // ========== 判断对齐状态 ==========
+        bool wasAlignedLastStep = IsAligned;
         bool isAligned = CheckAlignmentState(sensorValues);
+        bool justEnteredNonAligned = wasAlignedLastStep && !isAligned;
         IsAligned = isAligned;  // 更新公开属性
         
         // 更新对齐计时器
@@ -521,6 +512,11 @@ public class MyCarAgent : Agent
             alignedTimer = 0f;
             isStableAligned = false;
         }
+        // 重新进入对齐状态时，重置非对齐阶段动作历史
+        if (isAligned)
+        {
+            nonAlignedStepCount = 0;
+        }
 
         // ========== 动作输出处理 ==========
         // 使用平滑后的输出
@@ -536,10 +532,6 @@ public class MyCarAgent : Agent
 
         // 下发给 MyCar_Motion 控制车辆
         if (myCarMotion != null) myCarMotion.SetControl(vz, outputVx, outputOmega);
-        
-        // 更新前一帧数据（用于计算平稳性）
-        prevLateralSpeed = outputVx;
-        prevAngularSpeed = outputOmega;
 
         // ========== 终止条件1：脱轨检测（立即判定） ==========
         float frontCenter = sensorValues[1];  // 前中
@@ -564,8 +556,7 @@ public class MyCarAgent : Agent
                 {
                     alignmentReward = 0f,
                     speedCoefficient = 0f,
-                    smoothnessReward = 0f,
-                    turningReward = 0f,
+                    trendConsistencyReward = 0f,
                     straightOutputPenalty = 0f,
                     straightOutputPenaltyPercent = 0f,
                     totalReward = derailPenalty,
@@ -617,10 +608,26 @@ public class MyCarAgent : Agent
 
         // ========== 计算奖励 ==========
         // 使用 prevDiscreteAction（上一帧的）和 discreteAction（当前帧的）计算平稳性奖励
-        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, discreteAction, outputVx, outputOmega);
+        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, discreteAction, outputVx, outputOmega, justEnteredNonAligned);
         float rewardThisFrame = reward * Time.fixedDeltaTime;
         AddReward(rewardThisFrame);
         
+        // 更新非对齐阶段动作历史（趋势奖励只统计非对齐阶段内）
+        if (!isAligned)
+        {
+            if (nonAlignedStepCount == 0)
+            {
+                nonAlignedLastAction = discreteAction;
+                nonAlignedStepCount = 1;
+            }
+            else
+            {
+                nonAlignedPrevAction = nonAlignedLastAction;
+                nonAlignedLastAction = discreteAction;
+                nonAlignedStepCount++;
+            }
+        }
+
         // 更新动作记忆（用于下一帧的计算）
         prevDiscreteAction = lastDiscreteAction;  // 保存上一帧的动作，供下一帧平稳性计算使用
         lastDiscreteAction = discreteAction;      // 保存当前帧的动作，供下一帧观察使用
@@ -735,7 +742,7 @@ public class MyCarAgent : Agent
                 a_x = 0f;
                 a_w = 0f;
                 break;
-        }
+        }  
     }
 
     // 判断是否处于对齐状态
@@ -763,7 +770,7 @@ public class MyCarAgent : Agent
         return leftRightAligned && centerStrong;
     }
 
-    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, int currentDiscreteAction, float outputVx, float outputOmega)
+    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, int currentDiscreteAction, float outputVx, float outputOmega, bool justEnteredNonAligned)
     {
         if (s == null || s.Length < 6) return -1f;
 
@@ -821,8 +828,7 @@ public class MyCarAgent : Agent
                 {
                     alignmentReward = 0f,
                     speedCoefficient = 0f,
-                    smoothnessReward = 0f,
-                    turningReward = 0f,
+                    trendConsistencyReward = 0f,
                     straightOutputPenalty = 0f,
                     straightOutputPenaltyPercent = 0f,
                     totalReward = -2.0f,
@@ -833,54 +839,69 @@ public class MyCarAgent : Agent
         }
 
 
-        // ========== 3. 平稳性奖励：基于离散动作索引差值 ==========
-        // 计算当前动作和上一动作的索引差值
-        float smoothnessReward = 0f;
-        int actionIndexDiff = Mathf.Abs(currentDiscreteAction - prevDiscreteAction);
-        
-        // 根据差值选择对应的奖励/惩罚值
-        switch (actionIndexDiff)
+        // ========== 4. 趋势一致性奖励：仅在非对齐状态下生效 ==========
+        float trendConsistencyReward = 0f;
+        if (enableTrendConsistencyReward && !isAligned)
         {
-            case 0:
-                smoothnessReward = diff0Reward;  // 动作保持不变，最大奖励
-                break;
-            case 1:
-                smoothnessReward = diff1Reward;  // 相邻动作切换，小奖励
-                break;
-            case 2:
-                smoothnessReward = diff2Reward;  // 界限值，奖励为0
-                break;
-            case 3:
-                smoothnessReward = diff3Penalty;  // 小惩罚
-                break;
-            case 4:
-                smoothnessReward = diff4Penalty;
-                break;
-            case 5:
-                smoothnessReward = diff5Penalty; //急转弯
-                break;
-            case 6:
-                smoothnessReward = diff6Penalty;
-                break;
-            case 7:
-                smoothnessReward = diff7Penalty;
-                break;
-            case 8:
-                smoothnessReward = diff8Penalty;
-                break;
-            case 9:
-                smoothnessReward = diff9Penalty;
-                break;
-            case 10:
-                smoothnessReward = diff10Penalty;  // 最大差值，最大惩罚
-                break;
-            default:
-                // 理论上不应该超过10，但为了安全起见
-                smoothnessReward = diff10Penalty;
-                break;
+            // 统一中心化：左转<0，直行=0，右转>0
+            // 注意：lastU/prevU 来自非对齐阶段专用历史，不会混入对齐阶段动作
+            float currentU = currentDiscreteAction - (int)DiscreteAction.Forward;
+            float lastU = nonAlignedLastAction - (int)DiscreteAction.Forward;
+            float prevU = nonAlignedPrevAction - (int)DiscreteAction.Forward;
+
+            // 首次进入非对齐：鼓励主动转弯纠偏，惩罚继续直行
+            if (justEnteredNonAligned)
+            {
+                bool isForwardAction = (currentDiscreteAction == (int)DiscreteAction.Forward);
+                if (isForwardAction)
+                {
+                    trendConsistencyReward -= enterNonAlignedForwardPenalty;
+                }
+                else
+                {
+                    trendConsistencyReward += enterNonAlignedTurnBonus;
+                }
+            }
+            else
+            {
+                // 从第二帧开始，鼓励动作幅度单调回归直行（|a-5|递减）
+                if (nonAlignedStepCount >= 1)
+                {
+                    float absCurrentU = Mathf.Abs(currentU);
+                    float absLastU = Mathf.Abs(lastU);
+                    if (absCurrentU < absLastU)
+                    {
+                        trendConsistencyReward += returnToCenterBonus;
+                    }
+                    else if (absCurrentU > absLastU)
+                    {
+                        trendConsistencyReward -= moveAwayFromCenterPenalty;
+                    }
+
+                    // 左右侧直接跨越（0侧穿越到另一侧）额外惩罚
+                    if (currentU * lastU < 0f)
+                    {
+                        trendConsistencyReward -= oppositeTurnPenalty;
+                    }
+                }
+
+                // 惩罚异号翻转（需要至少2个非对齐历史点）
+                if (nonAlignedStepCount >= 2)
+                {
+                    float d1 = currentU - lastU;
+                    float d0 = lastU - prevU;
+                    bool hasValidD1 = Mathf.Abs(d1) > trendEpsilon;
+                    bool hasValidD0 = Mathf.Abs(d0) > trendEpsilon;
+                    bool isSignFlip = hasValidD1 && hasValidD0 && (d1 * d0 < 0f);
+                    if (isSignFlip)
+                    {
+                        trendConsistencyReward -= directionFlipPenalty;
+                    }
+                }
+            }
         }
         
-        // ========== 4. 对齐条件下的动作限制惩罚 ==========
+        // ========== 5. 对齐条件下的动作限制惩罚 ==========
         // 在对齐条件下：
         // - 微调动作（TurnLeftMicro/TurnRightMicro）：不奖励也不惩罚
         // - 直行动作（Forward）：给予小奖励
@@ -931,8 +952,8 @@ public class MyCarAgent : Agent
                     penaltyMultiplier = normalTurnPenaltyMultiplier;
                 }
                 // 小转动作（索引3或7）：轻微
-                else
-                {
+        else
+        {
                     penaltyMultiplier = normalTurnPenaltyMultiplier * 0.5f;  // 小转惩罚较轻
                 }
                 
@@ -947,12 +968,12 @@ public class MyCarAgent : Agent
             }
         }
 
-        // ========== 5. 最终奖励 ==========
+        // ========== 6. 最终奖励 ==========
         // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
-        // + 平稳性奖励：根据动作索引差值给予奖励或惩罚（差值≤2奖励，差值>2惩罚）
+        // + 趋势一致性奖励：惩罚正负跳变，鼓励单调回中
         // + 直线输出限制：在对齐条件下，直行奖励，微调不奖励不惩罚，其他动作惩罚
         float totalReward = alignmentReward * speedCoefficient
-                           + smoothnessReward
+                           + trendConsistencyReward
                            + straightOutputPenalty;
         
         // 保存奖励组成部分（用于详细显示）
@@ -962,8 +983,7 @@ public class MyCarAgent : Agent
             {
                 alignmentReward = alignmentReward,
                 speedCoefficient = speedCoefficient,
-                smoothnessReward = smoothnessReward,
-                turningReward = 0f,  // 已移除转弯奖励
+                trendConsistencyReward = trendConsistencyReward,
                 straightOutputPenalty = straightOutputPenalty,
                 straightOutputPenaltyPercent = straightOutputPenaltyPercent,
                 totalReward = totalReward,

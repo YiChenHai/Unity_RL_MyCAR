@@ -657,12 +657,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUILayout.Label($"1. 对齐奖励×速度系数: {alignmentSpeedReward:F4} (对齐={components.alignmentReward:F3} × 速度={components.speedCoefficient:F3})", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
-        labelStyle.normal.textColor = components.smoothnessReward >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"2. 平稳性奖励: {components.smoothnessReward:F4}", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        labelStyle.normal.textColor = components.turningReward >= 0 ? Color.green : Color.yellow;
-        GUILayout.Label($"3. 转弯奖励: {components.turningReward:F4}", 
+        labelStyle.normal.textColor = components.trendConsistencyReward >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"2. 趋势一致性奖励: {components.trendConsistencyReward:F4}", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
         labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
@@ -676,7 +672,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         float maxSharpTurnPenalty = basePenalty * myCarAgent.sharpTurnPenaltyMultiplier;
         float maxNormalTurnPenalty = basePenalty * myCarAgent.normalTurnPenaltyMultiplier;
         
-        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
+        GUILayout.Label($"3. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
         // 显示最大惩罚值信息（小字体，灰色）

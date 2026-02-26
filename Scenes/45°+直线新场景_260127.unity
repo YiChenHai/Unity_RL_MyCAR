@@ -431,10 +431,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 0
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 3856e18be69ca9141b0f44ac7e123e81, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 952ceadf4ac309c48a6ed0e18908c0c0, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Lisan_260218
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Lisan_260226
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -497,17 +497,14 @@ MonoBehaviour:
   alignedBonus: 2
   speedHighPercent: 0.6
   speedLowPercent: 0.2
-  diff0Reward: 0.3
-  diff1Reward: 0.15
-  diff2Reward: 0
-  diff3Penalty: -0.1
-  diff4Penalty: -0.18
-  diff5Penalty: -0.25
-  diff6Penalty: -0.3
-  diff7Penalty: -0.4
-  diff8Penalty: -0.55
-  diff9Penalty: -0.7
-  diff10Penalty: -1
+  enableTrendConsistencyReward: 1
+  directionFlipPenalty: 0.5
+  returnToCenterBonus: 0.2
+  moveAwayFromCenterPenalty: 0.5
+  trendEpsilon: 1.1
+  oppositeTurnPenalty: 0.5
+  enterNonAlignedTurnBonus: 0.25
+  enterNonAlignedForwardPenalty: 0.25
   derailPenalty: -10
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
@@ -538,7 +535,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7e4ad112514b76e4392e06856c20feb8, type: 3}
   m_Name: 
