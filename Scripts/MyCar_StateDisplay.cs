@@ -453,8 +453,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     void FixedUpdate()
     {
         // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
-        bool useTrainingMode = myCarAgent != null;
-        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
+        bool useTrainingMode = myCarAgent != null && myCarAgent.isActiveAndEnabled;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null && myCarAgent_DistillationTest.isActiveAndEnabled;
         
         // ========== 数据收集（在FixedUpdate中执行，避免延迟） ==========
         if (enableDataCollection && (useTrainingMode || useDistillationMode))
@@ -965,8 +965,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     private void RecordSample()
     {
         // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
-        bool useTrainingMode = myCarAgent != null;
-        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
+        bool useTrainingMode = myCarAgent != null && myCarAgent.isActiveAndEnabled;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null && myCarAgent_DistillationTest.isActiveAndEnabled;
         
         if ((!useTrainingMode && !useDistillationMode) || tape == null || sensors == null || sensors.Length < 6)
             return;
@@ -1224,8 +1224,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         }
         
         // 获取当前使用的控制脚本（优先使用训练模式，否则使用规则库模式）
-        bool useTrainingMode = myCarAgent != null;
-        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null;
+        bool useTrainingMode = myCarAgent != null && myCarAgent.isActiveAndEnabled;
+        bool useDistillationMode = !useTrainingMode && myCarAgent_DistillationTest != null && myCarAgent_DistillationTest.isActiveAndEnabled;
         
         if (!useTrainingMode && !useDistillationMode)
         {

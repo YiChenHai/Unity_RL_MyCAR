@@ -91,6 +91,12 @@ public class MyCarAgent : Agent
     public bool enableTrendConsistencyReward = true;
     [Tooltip("动作增长率异号翻转的惩罚值（越大越抑制左右/强弱来回跳）")]
     public float directionFlipPenalty = 0.6f;
+    [Tooltip("基于传感器误差映射目标动作的增益（越大越激进）")]
+    public float targetActionGain = 3.0f;
+    [Tooltip("动作偏离目标动作的惩罚权重")]
+    public float targetTrackingPenaltyWeight = 0.35f;
+    [Tooltip("动作接近目标动作时的奖励（偏差<=1档）")]
+    public float targetTrackingCloseBonus = 0.15f;
     [Tooltip("动作幅度向中心(Forward=5)收敛时的奖励")]
     public float returnToCenterBonus = 0.08f;
     [Tooltip("动作幅度远离中心(Forward=5)时的惩罚")]
@@ -181,7 +187,7 @@ public class MyCarAgent : Agent
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
     private int lastDiscreteAction = 0;         // 上一帧的离散动作索引（用于观察空间）
-    private int prevDiscreteAction = 0;         // 前一帧的离散动作索引（用于平稳性奖励计算）
+    private int prevDiscreteAction = 0;         // 前一帧的离散动作索引（用于趋势奖励的异号判定）
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
     
     [Header("Output Smoothing")]
@@ -607,7 +613,7 @@ public class MyCarAgent : Agent
         // 25%以上：不惩罚不奖励（正常状态，继续正常奖励计算）
 
         // ========== 计算奖励 ==========
-        // 使用 prevDiscreteAction（上一帧的）和 discreteAction（当前帧的）计算平稳性奖励
+        // 使用当前对齐状态和动作计算本帧奖励
         float reward = CalculateReward(sensorValues, isAligned, isStableAligned, discreteAction, outputVx, outputOmega, justEnteredNonAligned);
         float rewardThisFrame = reward * Time.fixedDeltaTime;
         AddReward(rewardThisFrame);
@@ -629,7 +635,7 @@ public class MyCarAgent : Agent
         }
 
         // 更新动作记忆（用于下一帧的计算）
-        prevDiscreteAction = lastDiscreteAction;  // 保存上一帧的动作，供下一帧平稳性计算使用
+        prevDiscreteAction = lastDiscreteAction;  // 保存上一帧动作，供趋势奖励中的异号判定使用
         lastDiscreteAction = discreteAction;      // 保存当前帧的动作，供下一帧观察使用
         
         // 记录奖励（用于显示）
@@ -864,6 +870,22 @@ public class MyCarAgent : Agent
             }
             else
             {
+                // (A) 目标动作跟踪：基于传感器误差构造目标动作，惩罚偏离
+                float frontErrorNorm = Mathf.Clamp((s[2] - s[0]) / Mathf.Max(1e-6f, maxField), -1f, 1f);
+                float rearErrorNorm = Mathf.Clamp((s[5] - s[3]) / Mathf.Max(1e-6f, maxField), -1f, 1f);
+                float turnErrorNorm = Mathf.Clamp(frontErrorNorm * 0.6f + rearErrorNorm * 0.4f, -1f, 1f);
+                int targetAction = Mathf.Clamp(
+                    Mathf.RoundToInt((int)DiscreteAction.Forward + turnErrorNorm * targetActionGain),
+                    0,
+                    10);
+
+                int actionTargetDiff = Mathf.Abs(currentDiscreteAction - targetAction);
+                trendConsistencyReward -= targetTrackingPenaltyWeight * actionTargetDiff;
+                if (actionTargetDiff <= 1)
+                {
+                    trendConsistencyReward += targetTrackingCloseBonus;
+                }
+
                 // 从第二帧开始，鼓励动作幅度单调回归直行（|a-5|递减）
                 if (nonAlignedStepCount >= 1)
                 {
