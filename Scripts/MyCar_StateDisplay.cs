@@ -8,6 +8,10 @@ using UnityEngine;
 /// </summary>
 public class MyCar_StateDisplay : MonoBehaviour
 {
+    private const int IncrementalActionMin = 0;
+    private const int IncrementalActionMax = 8;
+    private const int IncrementalHoldAction = 4;
+
     [Header("引用组件")]
     public MyCar_Motion myCarMotion;
     public MyCarAgent myCarAgent;  // ML-Agents训练模式
@@ -120,6 +124,10 @@ public class MyCar_StateDisplay : MonoBehaviour
         
         // 初始化动作索引历史记录
         _actionIndexHistory = new int[curveHistoryLength];
+        for (int i = 0; i < _actionIndexHistory.Length; i++)
+        {
+            _actionIndexHistory[i] = IncrementalHoldAction;
+        }
         
         // 初始化图例颜色纹理
         if (_cyanTexture == null)
@@ -356,17 +364,15 @@ public class MyCar_StateDisplay : MonoBehaviour
             {
                 switch (actionIndex)
                 {
-                    case 0: return "急左转";
-                    case 1: return "大左转";
-                    case 2: return "左转";
-                    case 3: return "小左转";
-                    case 4: return "微左转";
-                    case 5: return "直行";
-                    case 6: return "微右转";
-                    case 7: return "小右转";
-                    case 8: return "右转";
-                    case 9: return "大右转";
-                    case 10: return "急右转";
+                    case 0: return "大左";
+                    case 1: return "中左";
+                    case 2: return "小左";
+                    case 3: return "微左";
+                    case 4: return "保持";
+                    case 5: return "微右";
+                    case 6: return "小右";
+                    case 7: return "中右";
+                    case 8: return "大右";
                     default: return "未知";
                 }
             }
@@ -376,17 +382,15 @@ public class MyCar_StateDisplay : MonoBehaviour
             {
                 switch (actionIndex)
                 {
-                    case 0: return new Color(1f, 0.2f, 0.2f);  // 急左转 - 深红色
-                    case 1: return new Color(1f, 0.4f, 0.2f);  // 大左转 - 红色
-                    case 2: return new Color(1f, 0.6f, 0.3f);  // 左转 - 橙红色
-                    case 3: return new Color(1f, 0.8f, 0.5f);  // 小左转 - 浅橙红色
-                    case 4: return new Color(0.5f, 0.8f, 1f);  // 微左转 - 浅蓝色
-                    case 5: return Color.green;                 // 直行 - 绿色
-                    case 6: return new Color(0.5f, 0.8f, 1f);  // 微右转 - 浅蓝色
-                    case 7: return new Color(1f, 0.8f, 0.5f);  // 小右转 - 浅橙红色
-                    case 8: return new Color(1f, 0.6f, 0.3f);  // 右转 - 橙红色
-                    case 9: return new Color(1f, 0.4f, 0.2f);  // 大右转 - 红色
-                    case 10: return new Color(1f, 0.2f, 0.2f);  // 急右转 - 深红色
+                    case 0: return new Color(1f, 0.2f, 0.2f);  // 大左
+                    case 1: return new Color(1f, 0.4f, 0.2f);  // 中左
+                    case 2: return new Color(1f, 0.6f, 0.3f);  // 小左
+                    case 3: return new Color(1f, 0.8f, 0.5f);  // 微左
+                    case 4: return Color.green;                 // 保持
+                    case 5: return new Color(0.5f, 0.8f, 1f);  // 微右
+                    case 6: return new Color(0.3f, 0.7f, 1f);  // 小右
+                    case 7: return new Color(0.2f, 0.5f, 1f);  // 中右
+                    case 8: return new Color(0.1f, 0.35f, 1f); // 大右
                     default: return Color.gray;
                 }
             }
@@ -656,34 +660,6 @@ public class MyCar_StateDisplay : MonoBehaviour
         labelStyle.normal.textColor = alignmentColor;
         GUILayout.Label($"1. 对齐奖励×速度系数: {alignmentSpeedReward:F4} (对齐={components.alignmentReward:F3} × 速度={components.speedCoefficient:F3})", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        labelStyle.normal.textColor = components.trendConsistencyReward >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"2. 趋势一致性奖励: {components.trendConsistencyReward:F4}", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
-        // 显示惩罚百分比，根据百分比设置颜色（0%绿色，100%红色）
-        Color penaltyPercentColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
-        labelStyle.normal.textColor = penaltyPercentColor;
-        
-        // 计算最大惩罚值（用于显示）
-        // 新的惩罚逻辑：基于动作类型，急转最剧烈，普通转弯次之
-        float basePenalty = myCarAgent.alignedActionPenalty;
-        float maxSharpTurnPenalty = basePenalty * myCarAgent.sharpTurnPenaltyMultiplier;
-        float maxNormalTurnPenalty = basePenalty * myCarAgent.normalTurnPenaltyMultiplier;
-        
-        GUILayout.Label($"3. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        // 显示最大惩罚值信息（小字体，灰色）
-        GUIStyle infoStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 10,
-            normal = { textColor = Color.gray }
-        };
-        GUILayout.Label($"   最大惩罚值: 急转={maxSharpTurnPenalty:F4}, 普通转弯={maxNormalTurnPenalty:F4}, 基础={basePenalty:F4}", 
-            infoStyle, GUILayout.Width(rewardRect.width - 20));
-        
         GUILayout.Space(5);
         
         GUIStyle totalStyle = new GUIStyle(GUI.skin.label)
@@ -808,9 +784,9 @@ public class MyCar_StateDisplay : MonoBehaviour
     {
         if (_actionIndexHistory == null || _actionIndexHistory.Length < 2) return;
         
-        // 动作索引范围：0-10
-        float minVal = 0f;
-        float maxVal = 10f;
+        // 动作索引范围（训练模式增量动作）：0-8
+        float minVal = IncrementalActionMin;
+        float maxVal = IncrementalActionMax;
         
         // 绘制网格
         DrawActionIndexGrid(graphRect, minVal, maxVal);
@@ -834,8 +810,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     
     void DrawActionIndexGrid(Rect graphRect, float minVal, float maxVal)
     {
-        // 绘制Y轴标签（0, 2, 4, 6, 8, 10）
-        float[] labelValues = { 10f, 8f, 6f, 4f, 2f, 0f };
+        // 绘制Y轴标签（0, 2, 4, 6, 8）
+        float[] labelValues = { 8f, 6f, 4f, 2f, 0f };
         GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
         {
             fontSize = 10,
@@ -851,16 +827,16 @@ public class MyCar_StateDisplay : MonoBehaviour
             GUI.Label(labelRect, val.ToString("F0"), labelStyle);
         }
         
-        // 绘制中心线（索引5，即Forward）
-        float centerY = Mathf.Lerp(graphRect.yMax, graphRect.y, (5f - minVal) / (maxVal - minVal));
+        // 绘制中心线（索引4，即保持）
+        float centerY = Mathf.Lerp(graphRect.yMax, graphRect.y, (IncrementalHoldAction - minVal) / (maxVal - minVal));
         centerY = Mathf.Clamp(centerY, graphRect.y, graphRect.yMax);
         DrawLine(new Vector2(graphRect.x, centerY), new Vector2(graphRect.xMax, centerY), 
             new Color(0.5f, 0.5f, 0.5f, 0.5f));
         
         // 绘制网格线（每2个索引一条）
-        for (int i = 0; i <= 10; i += 2)
+        for (int i = 0; i <= IncrementalActionMax; i += 2)
         {
-            if (i == 5) continue; // 跳过中心线
+            if (i == IncrementalHoldAction) continue; // 跳过中心线
             float gridY = Mathf.Lerp(graphRect.yMax, graphRect.y, (i - minVal) / (maxVal - minVal));
             gridY = Mathf.Clamp(gridY, graphRect.y, graphRect.yMax);
             Color gridColor = new Color(0.5f, 0.5f, 0.5f, 0.3f);
@@ -976,8 +952,9 @@ public class MyCar_StateDisplay : MonoBehaviour
         float constantForwardSpeed = 0.2f;
         float maxLateralSpeed = 0.15f;
         float maxOmegaDeg = 80f;
-        int previousDiscreteAction = 5;
-        int currentDiscreteAction = 5;
+        int previousDiscreteAction = IncrementalHoldAction;
+        int currentDiscreteAction = IncrementalHoldAction;
+        float actionNormalizeDenominator = IncrementalActionMax;
         
         if (useTrainingMode)
         {
@@ -987,6 +964,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             maxOmegaDeg = myCarAgent.maxOmegaDeg;
             previousDiscreteAction = myCarAgent.PreviousDiscreteAction;
             currentDiscreteAction = myCarAgent.CurrentDiscreteAction;
+            actionNormalizeDenominator = IncrementalActionMax;
         }
         else if (useDistillationMode)
         {
@@ -996,6 +974,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             maxOmegaDeg = myCarAgent_DistillationTest.maxOmegaDeg;
             previousDiscreteAction = myCarAgent_DistillationTest.PreviousDiscreteAction;
             currentDiscreteAction = myCarAgent_DistillationTest.CurrentDiscreteAction;
+            actionNormalizeDenominator = 10f;
         }
         
         // 重新计算观测（与MyCar_Agent的CollectObservations逻辑相同，10维）
@@ -1015,7 +994,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         }
 
         // 7: 上次输出状态（离散动作索引归一化到0-1范围）
-        float lastActionState = previousDiscreteAction / 10f;
+        float lastActionState = previousDiscreteAction / Mathf.Max(1f, actionNormalizeDenominator);
         observations.Add(lastActionState);
 
         // 8-10: 实际运动状态（物理反馈）
@@ -1039,7 +1018,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             }
         }
         
-        // 写入目标：离散动作索引（整数，0-10）
+        // 写入目标：离散动作索引（训练模式0-8，规则库模式0-10）
         sb.Append(",");
         sb.Append(currentDiscreteAction.ToString());
         
@@ -1245,7 +1224,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             
             // 获取控制脚本的状态信息
             float episodeTimer = 0f;
-            int currentDiscreteAction = 5;
+            int currentDiscreteAction = IncrementalHoldAction;
             float lastOutputLateralSpeed = 0f;
             float lastOutputAngularSpeed = 0f;
             bool isAligned = false;

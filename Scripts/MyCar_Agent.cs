@@ -6,22 +6,20 @@ using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
 
 /// <summary>
-/// 离散动作空间定义（扩展版：11个动作）
-/// 动作索引顺序：急左转 → 大左转 → 左转 → 小左转 → 微左转 → 直行 → 微右转 → 小右转 → 右转 → 大右转 → 急右转
+/// 增量动作定义（9个动作）
+/// 动作索引顺序：大左、中左、小左、微左、保持、微右、小右、中右、大右
 /// </summary>
-public enum DiscreteAction
+public enum IncrementalAction
 {
-    TurnLeftSharp = 0,     // 急左转：vx=0, omega=+急转固定值
-    TurnLeftLarge = 1,     // 大左转：vx=0, omega=+大转固定值
-    TurnLeft = 2,          // 左转：vx=0, omega=+固定值
-    TurnLeftSmall = 3,     // 小左转：vx=0, omega=+小转固定值
-    TurnLeftMicro = 4,     // 微左转：vx=0, omega=+微转固定值
-    Forward = 5,           // 直行：vx=0, omega=0
-    TurnRightMicro = 6,    // 微右转：vx=0, omega=-微转固定值
-    TurnRightSmall = 7,    // 小右转：vx=0, omega=-小转固定值
-    TurnRight = 8,         // 右转：vx=0, omega=-固定值
-    TurnRightLarge = 9,    // 大右转：vx=0, omega=-大转固定值
-    TurnRightSharp = 10    // 急右转：vx=0, omega=-急转固定值
+    LeftLarge = 0,
+    LeftMedium = 1,
+    LeftSmall = 2,
+    LeftMicro = 3,
+    Hold = 4,
+    RightMicro = 5,
+    RightSmall = 6,
+    RightMedium = 7,
+    RightLarge = 8
 }
 
 public class MyCarAgent : Agent
@@ -46,22 +44,19 @@ public class MyCarAgent : Agent
     public float maxLateralSpeed = 0.15f;       // vx (横向速度) m/s
     public float maxOmegaDeg = 80f;            // omega (自转角速度) deg/s - 防止轮子翻转
     
-    [Header("Discrete Action Space (扩展版: 11个动作)")]
-    [Tooltip("急左转/急右转的角速度值(归一化-1~1). 例如0.5625表示使用最大角速度的56.25%")]
+    [Header("增量动作控制")]
+    [Tooltip("微步增量（每次动作对归一化角速度的改变量，范围0~1）")]
     [Range(0f, 1f)]
-    public float turnSharpAngularValue = 0.5625f;  // 急转弯的角速度值
-    [Tooltip("大左转/大右转的角速度值（归一化，-1~1）")]
+    public float omegaDeltaMicro = 0.06f;
+    [Tooltip("小步增量（每次动作对归一化角速度的改变量，范围0~1）")]
     [Range(0f, 1f)]
-    public float turnLargeAngularValue = 0.4375f;  // 大转弯的角速度值
-    [Tooltip("普通左转/右转的角速度值(归一化-1~1). 例如0.25表示使用最大角速度的25%")]
+    public float omegaDeltaSmall = 0.12f;
+    [Tooltip("中步增量（每次动作对归一化角速度的改变量，范围0~1）")]
     [Range(0f, 1f)]
-    public float turnAngularValue = 0.25f;  // 普通转弯的角速度值
-    [Tooltip("小左转/小右转的角速度值（归一化，-1~1）")]
+    public float omegaDeltaMedium = 0.18f;
+    [Tooltip("大步增量（每次动作对归一化角速度的改变量，范围0~1）")]
     [Range(0f, 1f)]
-    public float turnSmallAngularValue = 0.125f;  // 小转弯的角速度值
-    [Tooltip("微左转/微右转的角速度值（归一化，-1~1）")]
-    [Range(0f, 1f)]
-    public float turnMicroAngularValue = 0.0625f;  // 微转弯的角速度值
+    public float omegaDeltaLarge = 0.26f;
 
     [Header("Normalization")]
     public float maxField = 8f;                // 磁场最大值
@@ -86,17 +81,6 @@ public class MyCarAgent : Agent
     [Tooltip("速度惩罚阈值(20%). 速度<此阈值时返回-2.0(大惩罚). 在此阈值和speedHighPercent之间时线性插值")]
     public float speedLowPercent = 0.20f;
 
-    [Header("3. 趋势一致性奖励 (Trend Consistency)")]
-    [Tooltip("是否启用趋势一致性奖励（基于误差映射目标动作）")]
-    public bool enableTrendConsistencyReward = true;
-    [Tooltip("基于传感器误差映射目标动作的增益（越大越激进）")]
-    public float targetActionGain = 3.0f;
-    [Tooltip("动作偏离目标动作的惩罚权重")]
-    public float targetTrackingPenaltyWeight = 0.35f;
-    [Tooltip("动作接近目标动作时的奖励（偏差<=1档）")]
-    public float targetTrackingCloseBonus = 0.15f;
-
-
     [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
     [Tooltip("脱轨惩罚(负数),脱轨时立即终止回合")]
     public float derailPenalty = -15.0f;
@@ -104,16 +88,6 @@ public class MyCarAgent : Agent
     public float warningUpperThresholdPercent = 0.3f;
     [Tooltip("预警惩罚系数(每帧,18%~25%之间的线性惩罚)")]
     public float warningPenaltyCoefficient = -4.0f;
-
-    [Header("7. 直线输出限制 (Straight Output Constraints)")]
-    [Tooltip("对齐条件下输出微转和直行以外动作时的惩罚权重. 允许动作: TurnLeftMicro(4), Forward(5), TurnRightMicro(6)")]
-    public float alignedActionPenalty = 1.5f;
-    [Tooltip("对齐条件下输出Forward(直行)动作时的奖励值. 微调动作不奖励也不惩罚,直行动作给予小奖励")]
-    public float forwardReward = 0.2f;
-    [Tooltip("急转动作的惩罚倍数(TurnLeftSharp/TurnRightSharp索引0/10)")]
-    public float sharpTurnPenaltyMultiplier = 2.0f;
-    [Tooltip("普通转弯动作的惩罚倍数(TurnLeft/TurnRight索引2/8)")]
-    public float normalTurnPenaltyMultiplier = 1.5f;
 
     [Header("Reward Tracking (for Display)")]
     [Tooltip("是否启用奖励跟踪(用于UI显示)")]
@@ -128,9 +102,6 @@ public class MyCarAgent : Agent
     {
         public float alignmentReward;      // 对齐奖励
         public float speedCoefficient;      // 速度系数
-        public float trendConsistencyReward; // 趋势一致性奖励
-        public float straightOutputPenalty; // 直线输出限制惩罚
-        public float straightOutputPenaltyPercent; // 直线输出惩罚百分比（0-100%）
         public float totalReward;          // 总奖励（乘以dt前）
         public float rewardThisFrame;      // 本帧奖励（乘以dt后）
     }
@@ -156,9 +127,11 @@ public class MyCarAgent : Agent
     public bool IsStableAligned => isStableAligned;      // 当前是否稳定对齐
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
-    // 公开动作状态供外部访问（如UI显示）
-    public int CurrentDiscreteAction => lastDiscreteAction;  // 当前输出的离散动作索引（0-10）
-    public int PreviousDiscreteAction => prevDiscreteAction;  // 上一帧的离散动作索引（0-10）
+    // 公开动作状态供外部访问（如UI显示/数据记录）
+    // 当前输出的增量动作索引（0-8）：大左、中左、小左、微左、保持、微右、小右、中右、大右
+    public int CurrentDiscreteAction => currentIncrementalAction;
+    public int PreviousDiscreteAction => previousIncrementalAction;
+    public float CurrentOmegaNorm => currentOmegaNorm;  // 当前归一化角速度控制状态（-1~1）
     
     // 公开状态供数据记录使用
     public float EpisodeTimer => episodeTimer;  // 当前回合时间
@@ -168,8 +141,9 @@ public class MyCarAgent : Agent
     // 动作记忆（用于观察空间）
     private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
-    private int lastDiscreteAction = 0;         // 上一帧的离散动作索引（用于观察空间）
-    private int prevDiscreteAction = 0;         // 前一帧的离散动作索引（用于趋势奖励的异号判定）
+    private int currentIncrementalAction = (int)IncrementalAction.Hold;   // 当前增量动作索引（0-8）
+    private int previousIncrementalAction = (int)IncrementalAction.Hold;  // 上一控制步增量动作索引（0-8）
+    private float currentOmegaNorm = 0f;   // 当前归一化角速度控制状态（-1~1）
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
     
     [Header("Output Smoothing")]
@@ -278,7 +252,7 @@ public class MyCarAgent : Agent
             Debug.LogError($"[MyCarAgent] 必须配置离散动作空间！\n" +
                          $"请在BehaviorParameters中设置：\n" +
                          $"- Space Size: 1\n" +
-                         $"- Branch 0 Size: 11 (对应11个离散动作：TurnLeftSharp, TurnLeftLarge, TurnLeft, TurnLeftSmall, TurnLeftMicro, Forward, TurnRightMicro, TurnRightSmall, TurnRight, TurnRightLarge, TurnRightSharp)\n" +
+                         $"- Branch 0 Size: 9 (对应9个增量动作：大左、中左、小左、微左、保持、微右、小右、中右、大右)\n" +
                          $"- Continuous Actions: 0 (不使用连续动作)");
         }
         else if (numDiscreteActions > 0)
@@ -286,19 +260,19 @@ public class MyCarAgent : Agent
             if (actionSpec.BranchSizes == null || actionSpec.BranchSizes.Length == 0)
             {
                 Debug.LogError($"[MyCarAgent] 离散动作空间分支大小未配置！\n" +
-                             $"请在BehaviorParameters中设置Branch 0 Size为11");
+                             $"请在BehaviorParameters中设置Branch 0 Size为9");
             }
             else
             {
                 int branchSize = actionSpec.BranchSizes[0];
-                if (branchSize != 11)
+                if (branchSize != 9)
                 {
-                    Debug.LogError($"[MyCarAgent] 离散动作空间分支大小不匹配！当前={branchSize}，期望=11\n" +
-                                 $"请在BehaviorParameters中设置Branch 0 Size为11");
+                    Debug.LogError($"[MyCarAgent] 离散动作空间分支大小不匹配！当前={branchSize}，期望=9\n" +
+                                 $"请在BehaviorParameters中设置Branch 0 Size为9（增量动作）");
                 }
                 else
                 {
-                    Debug.Log($"[MyCarAgent] 离散动作空间配置正确：11个动作，观测空间：10维");
+                    Debug.Log($"[MyCarAgent] 离散动作空间配置正确：9个增量动作，观测空间：10维");
                 }
             }
         }
@@ -396,8 +370,9 @@ public class MyCarAgent : Agent
         lastOutputAngularSpeed = 0f;
         smoothedLateralSpeed = 0f;  // 初始化平滑缓冲
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
-        lastDiscreteAction = (int)DiscreteAction.Forward;  // 初始化离散动作为Forward(5)
-        prevDiscreteAction = (int)DiscreteAction.Forward;  // 初始化前一帧离散动作为Forward(5)
+        currentIncrementalAction = (int)IncrementalAction.Hold;
+        previousIncrementalAction = (int)IncrementalAction.Hold;
+        currentOmegaNorm = 0f;
         
         // 重置奖励跟踪
         if (enableRewardTracking)
@@ -425,10 +400,8 @@ public class MyCarAgent : Agent
             else sensor.AddObservation(0f);
         }
 
-        // 7: 上次输出状态（离散动作索引归一化到0-1范围）
-        // 将离散动作索引（0-10）归一化到0-1范围
-        float lastActionState = lastDiscreteAction / 10f;  // 0/10=0, 10/10=1
-        sensor.AddObservation(lastActionState);
+        // 7: 当前归一化角速度状态映射到0-1范围（-1~1 -> 0~1）
+        sensor.AddObservation((currentOmegaNorm + 1f) * 0.5f);
 
         // 8-10: 车身实际运动状态（物理反馈）
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
@@ -443,19 +416,14 @@ public class MyCarAgent : Agent
     public override void OnActionReceived(ActionBuffers actions)
     { 
         float a_x, a_w;
-        int discreteAction = 0;
-        
-        // 强制使用离散动作空间（方案C）
-        // 从离散动作空间读取动作（0-10）
-        discreteAction = actions.DiscreteActions[0];
-        
-        // 边界检查：确保动作索引在有效范围内（0-10）
-        discreteAction = Mathf.Clamp(discreteAction, 0, 10);
-        
-        // 将离散动作映射到连续输出
-        MapDiscreteActionToContinuous(discreteAction, out a_x, out a_w);
-        
-        // 注意：lastDiscreteAction 将在计算奖励后更新，用于下一帧观察
+        int incrementalAction = (actions.DiscreteActions.Length > 0) ? actions.DiscreteActions[0] : (int)IncrementalAction.Hold;
+        incrementalAction = Mathf.Clamp(incrementalAction, 0, 8);
+        float omegaDelta = MapIncrementalActionToOmegaDelta(incrementalAction);
+        previousIncrementalAction = currentIncrementalAction;
+        currentIncrementalAction = incrementalAction;
+        currentOmegaNorm = Mathf.Clamp(currentOmegaNorm + omegaDelta, -1f, 1f);
+        a_x = 0f;
+        a_w = currentOmegaNorm;
 
         // ========== 应用指数平滑滤波减少震荡 ==========
         // 指数平滑：smoothed = α·raw + (1-α)·smoothed_prev
@@ -533,9 +501,6 @@ public class MyCarAgent : Agent
                 {
                     alignmentReward = 0f,
                     speedCoefficient = 0f,
-                    trendConsistencyReward = 0f,
-                    straightOutputPenalty = 0f,
-                    straightOutputPenaltyPercent = 0f,
                     totalReward = derailPenalty,
                     rewardThisFrame = derailPenalty
                 };
@@ -585,13 +550,9 @@ public class MyCarAgent : Agent
 
         // ========== 计算奖励 ==========
         // 使用当前对齐状态和动作计算本帧奖励
-        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, discreteAction, outputVx, outputOmega);
+        float reward = CalculateReward(sensorValues, isAligned);
         float rewardThisFrame = reward * Time.fixedDeltaTime;
         AddReward(rewardThisFrame);
-        
-        // 更新动作记忆（用于下一帧的计算）
-        prevDiscreteAction = lastDiscreteAction;  // 保存上一帧动作，供趋势奖励中的异号判定使用
-        lastDiscreteAction = discreteAction;      // 保存当前帧的动作，供下一帧观察使用
         
         // 记录奖励（用于显示）
         if (enableRewardTracking)
@@ -619,91 +580,31 @@ public class MyCarAgent : Agent
         }  
     }
 
-    /// <summary>
-    /// 将离散动作映射到连续输出值（扩展版：11个动作）
-    /// </summary>
-    /// <param name="action">离散动作索引（0-10）</param>
-    /// <param name="a_x">输出的横向速度比例（-1~1）</param>
-    /// <param name="a_w">输出的角速度比例（-1~1）</param>
-    void MapDiscreteActionToContinuous(int action, out float a_x, out float a_w)
+    float MapIncrementalActionToOmegaDelta(int incrementalAction)
     {
-        a_x = 0f;  // 所有动作的横向速度都为0
-        a_w = 0f;  // 默认角速度为0
-        
-        switch ((DiscreteAction)action)
+        switch ((IncrementalAction)incrementalAction)
         {
-            case DiscreteAction.TurnLeftSharp:
-                // 急左转：vx=0, omega=+急转固定值
-                a_x = 0f;
-                a_w = turnSharpAngularValue;
-                break;
-                
-            case DiscreteAction.TurnLeftLarge:
-                // 大左转：vx=0, omega=+大转固定值
-                a_x = 0f;
-                a_w = turnLargeAngularValue;
-                break;
-                
-            case DiscreteAction.TurnLeft:
-                // 左转：vx=0, omega=+固定值
-                a_x = 0f;
-                a_w = turnAngularValue;
-                break;
-                
-            case DiscreteAction.TurnLeftSmall:
-                // 小左转：vx=0, omega=+小转固定值
-                a_x = 0f; 
-                a_w = turnSmallAngularValue;
-                break;
-                
-            case DiscreteAction.TurnLeftMicro:
-                // 微左转：vx=0, omega=+微转固定值
-                a_x = 0f;
-                a_w = turnMicroAngularValue;
-                break;
-                
-            case DiscreteAction.Forward:
-                // 直行：vx=0, omega=0
-                a_x = 0f;
-                a_w = 0f;
-                break;
-                
-            case DiscreteAction.TurnRightMicro:
-                // 微右转：vx=0, omega=-微转固定值
-                a_x = 0f;
-                a_w = -turnMicroAngularValue;
-                break;
-                
-            case DiscreteAction.TurnRightSmall:
-                // 小右转：vx=0, omega=-小转固定值
-                a_x = 0f;
-                a_w = -turnSmallAngularValue;
-                break;
-                
-            case DiscreteAction.TurnRight:
-                // 右转：vx=0, omega=-固定值
-                a_x = 0f;
-                a_w = -turnAngularValue;
-                break;
-                
-            case DiscreteAction.TurnRightLarge:
-                // 大右转：vx=0, omega=-大转固定值
-                a_x = 0f;
-                a_w = -turnLargeAngularValue;
-                break;
-                
-            case DiscreteAction.TurnRightSharp:
-                // 急右转：vx=0, omega=-急转固定值
-                a_x = 0f;
-                a_w = -turnSharpAngularValue;
-                break;
-                
+            case IncrementalAction.LeftLarge:
+                return -omegaDeltaLarge;
+            case IncrementalAction.LeftMedium:
+                return -omegaDeltaMedium;
+            case IncrementalAction.LeftSmall:
+                return -omegaDeltaSmall;
+            case IncrementalAction.LeftMicro:
+                return -omegaDeltaMicro;
+            case IncrementalAction.Hold:
+                return 0f;
+            case IncrementalAction.RightMicro:
+                return omegaDeltaMicro;
+            case IncrementalAction.RightSmall:
+                return omegaDeltaSmall;
+            case IncrementalAction.RightMedium:
+                return omegaDeltaMedium;
+            case IncrementalAction.RightLarge:
+                return omegaDeltaLarge;
             default:
-                // 未知动作，保持为0
-                a_x = 0f;
-                a_w = 0f;
-                break;
-        }  
+                return 0f;
+        }
     }
 
     // 判断是否处于对齐状态
@@ -731,7 +632,7 @@ public class MyCarAgent : Agent
         return leftRightAligned && centerStrong;
     }
 
-    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, int currentDiscreteAction, float outputVx, float outputOmega)
+    float CalculateReward(float[] s, bool isAligned)
     {
         if (s == null || s.Length < 6) return -1f;
 
@@ -780,7 +681,7 @@ public class MyCarAgent : Agent
             speedCoefficient = (forwardSpeed - lowSpeedThreshold) / (highSpeedThreshold - lowSpeedThreshold);
         }
         else
-        {
+        { 
             // 速度 < 20%预设速度：返回-2.0（允许转弯减速）
             // 保存速度过低的奖励组成部分
             if (enableRewardTracking)
@@ -789,9 +690,6 @@ public class MyCarAgent : Agent
                 {
                     alignmentReward = 0f,
                     speedCoefficient = 0f,
-                    trendConsistencyReward = 0f,
-                    straightOutputPenalty = 0f,
-                    straightOutputPenaltyPercent = 0f,
                     totalReward = -2.0f,
                     rewardThisFrame = -2.0f * Time.fixedDeltaTime
                 };
@@ -799,110 +697,9 @@ public class MyCarAgent : Agent
             return -2.0f;
         }
 
-
-        // ========== 4. 趋势一致性奖励：仅保留误差映射目标动作 ==========
-        float trendConsistencyReward = 0f;
-        if (enableTrendConsistencyReward && !isAligned)
-        {
-            // 基于传感器左右误差构造目标动作，惩罚偏离
-            float frontErrorNorm = Mathf.Clamp((s[2] - s[0]) / Mathf.Max(1e-6f, maxField), -1f, 1f);
-            float rearErrorNorm = Mathf.Clamp((s[5] - s[3]) / Mathf.Max(1e-6f, maxField), -1f, 1f);
-            float turnErrorNorm = Mathf.Clamp(frontErrorNorm * 0.6f + rearErrorNorm * 0.4f, -1f, 1f);
-            int targetAction = Mathf.Clamp(
-                Mathf.RoundToInt((int)DiscreteAction.Forward + turnErrorNorm * targetActionGain),
-                0,
-                10);
-
-            int actionTargetDiff = Mathf.Abs(currentDiscreteAction - targetAction);
-
-            if (actionTargetDiff == 1)
-            {
-                trendConsistencyReward += targetTrackingCloseBonus*0.5;
-            }
-			else if (actionTargetDiff == 0)
-			{
-                trendConsistencyReward += targetTrackingCloseBonus;
-			}
-			else
-			{
-				trendConsistencyReward -= targetTrackingPenaltyWeight * actionTargetDiff;
-			}
-        }
-        
-        // ========== 5. 对齐条件下的动作限制惩罚 ==========
-        // 在对齐条件下：
-        // - 微调动作（TurnLeftMicro/TurnRightMicro）：不奖励也不惩罚
-        // - 直行动作（Forward）：给予小奖励
-        // - 其他转弯动作：根据剧烈程度惩罚
-        float straightOutputPenalty = 0f;
-        float straightOutputPenaltyPercent = 0f;  // 惩罚百分比（0-100%）
-        
-        if (isAligned)
-        {
-            // 检查动作类型
-            bool isMicroAction = (currentDiscreteAction == (int)DiscreteAction.TurnLeftMicro) ||
-                                (currentDiscreteAction == (int)DiscreteAction.TurnRightMicro);
-            bool isForwardAction = (currentDiscreteAction == (int)DiscreteAction.Forward);
-            
-            if (isForwardAction)
-            {
-                // 直行动作：给予小奖励
-                straightOutputPenalty = forwardReward;
-                straightOutputPenaltyPercent = 0f;  // 奖励时百分比为0
-            }
-            else if (isMicroAction)
-            {
-                // 微调动作：不奖励也不惩罚
-                straightOutputPenalty = 0f;
-                straightOutputPenaltyPercent = 0f;
-            }
-            else
-            {
-                // 其他转弯动作：根据剧烈程度计算惩罚
-                float penaltyMultiplier = 1.0f;
-                
-                // 急转动作（索引0或10）：最剧烈
-                if (currentDiscreteAction == (int)DiscreteAction.TurnLeftSharp || 
-                    currentDiscreteAction == (int)DiscreteAction.TurnRightSharp)
-                {
-                    penaltyMultiplier = sharpTurnPenaltyMultiplier;
-                }
-                // 大转动作（索引1或9）：次剧烈
-                else if (currentDiscreteAction == (int)DiscreteAction.TurnLeftLarge || 
-                         currentDiscreteAction == (int)DiscreteAction.TurnRightLarge)
-                {
-                    penaltyMultiplier = normalTurnPenaltyMultiplier * 1.2f;  // 比普通转弯稍高
-                }
-                // 普通转弯动作（索引2或8）：中等
-                else if (currentDiscreteAction == (int)DiscreteAction.TurnLeft || 
-                         currentDiscreteAction == (int)DiscreteAction.TurnRight)
-                {
-                    penaltyMultiplier = normalTurnPenaltyMultiplier;
-                }
-                // 小转动作（索引3或7）：轻微
-                else
-                {
-                    penaltyMultiplier = normalTurnPenaltyMultiplier * 0.5f;  // 小转惩罚较轻
-                }
-                
-                // 计算惩罚值：基础惩罚 × 倍数
-                float penaltyValue = alignedActionPenalty * penaltyMultiplier;
-                straightOutputPenalty -= penaltyValue;
-                
-                // 计算惩罚百分比（基于动作索引距离中心的距离）
-                // 中心是Forward(5)，距离越远惩罚百分比越高
-                float distanceFromCenter = Mathf.Abs(currentDiscreteAction - 5);
-                straightOutputPenaltyPercent = (distanceFromCenter / 5f) * 100f;  // 最大100%（索引0或10）
-            }
-        }
-
-        // ========== 6. 最终奖励 ==========
-        // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
-        // + 趋势一致性奖励：基于误差映射目标动作，惩罚偏离
-        // + 直线输出限制：在对齐条件下，直行奖励，微调不奖励不惩罚，其他动作惩罚
-        float totalReward = alignmentReward * speedCoefficient
-                           + trendConsistencyReward
-                           + straightOutputPenalty;
+        // ========== 3. 最终奖励 ==========
+        // 仅保留：对齐奖励 × 速度系数
+        float totalReward = alignmentReward * speedCoefficient;
         
         // 保存奖励组成部分（用于详细显示）
         if (enableRewardTracking)
@@ -911,9 +708,6 @@ public class MyCarAgent : Agent
             {
                 alignmentReward = alignmentReward,
                 speedCoefficient = speedCoefficient,
-                trendConsistencyReward = trendConsistencyReward,
-                straightOutputPenalty = straightOutputPenalty,
-                straightOutputPenaltyPercent = straightOutputPenaltyPercent,
                 totalReward = totalReward,
                 rewardThisFrame = 0f  // 将在调用处设置
             };
@@ -924,6 +718,10 @@ public class MyCarAgent : Agent
 
     public override void Heuristic(in ActionBuffers actionsOut)
     {
-        // 不需要手动控制
+        var discreteActions = actionsOut.DiscreteActions;
+        if (discreteActions.Length > 0)
+        {
+            discreteActions[0] = (int)IncrementalAction.Hold;
+        }
     }
 }
