@@ -357,7 +357,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c667595f282c2d84c9483eace042e852, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  controlSource: 1
+  controlSource: 0
   wheelColliders:
   - {fileID: 751401904}
   - {fileID: 897324996}
