@@ -37,11 +37,10 @@ public class MyCar_StateDisplay : MonoBehaviour
     public Vector2 rewardCurveSize = new Vector2(400, 200);
 
     private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
-    private static Texture2D _cyanTexture; // 青色图例颜色块
     private static Texture2D _magentaTexture; // 洋红色图例颜色块
+    private static Material _lineMaterial; // 线条材质，静态复用避免频繁创建
     
     // 曲线数据缓冲区
-    private float[] _lateralSpeedHistory;
     private float[] _angularSpeedHistory;
     private int _historyIndex = 0;
 
@@ -58,16 +57,9 @@ public class MyCar_StateDisplay : MonoBehaviour
             rb = GetComponent<Rigidbody>();
         
         // 初始化曲线缓冲区
-        _lateralSpeedHistory = new float[curveHistoryLength];
         _angularSpeedHistory = new float[curveHistoryLength];
         
         // 初始化图例颜色纹理
-        if (_cyanTexture == null)
-        {
-            _cyanTexture = new Texture2D(1, 1);
-            _cyanTexture.SetPixel(0, 0, Color.cyan);
-            _cyanTexture.Apply();
-        }
         if (_magentaTexture == null)
         {
             _magentaTexture = new Texture2D(1, 1);
@@ -101,9 +93,6 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 记录当前输出到历史缓冲区
         if (myCarAgent != null)
         {
-            _lateralSpeedHistory[_historyIndex] = myCarAgent.maxLateralSpeed > 0 
-                ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
-                : 0f;
             _angularSpeedHistory[_historyIndex] = myCarAgent.maxOmegaDeg > 0 
                 ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
                 : 0f;
@@ -304,7 +293,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     }
 
     /// <summary>
-    /// 绘制智能体输出的横向速度和角速度曲线
+    /// 绘制智能体输出的角速度曲线
     /// </summary>
     void DrawOutputCurves()
     {
@@ -314,7 +303,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUI.DrawTexture(curveRect, _bgTexture);
         
         // 绘制边框
-        GUI.Box(curveRect, "Agent Output Curves");
+        GUI.Box(curveRect, "Agent Angular Output Curve");
         
         // 绘制图例（在标题下方）
         DrawCurveLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
@@ -329,9 +318,6 @@ public class MyCar_StateDisplay : MonoBehaviour
     void DrawCurveGraph(Rect graphRect)
     {
         // 获取当前值（正规化到 -1 ~ 1）
-        float currentLateralNorm = myCarAgent.maxLateralSpeed > 0 
-            ? (myCarMotion.vx_input / myCarAgent.maxLateralSpeed) 
-            : 0f;
         float currentAngularNorm = myCarAgent.maxOmegaDeg > 0 
             ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
             : 0f;
@@ -339,9 +325,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 绘制坐标轴和网格
         DrawGraphGrid(graphRect);
         
-        // 绘制两条曲线（需要先clamp值）
-        DrawCurveLineWithColor(graphRect, _lateralSpeedHistory, Color.cyan, "Lateral Vx");
-        DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta, "Angular ω");
+        // 绘制角速度曲线（需要先clamp值）
+        DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta);
         
         // 绘制当前值标签（在图表底部）
         GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
@@ -353,15 +338,14 @@ public class MyCar_StateDisplay : MonoBehaviour
         float labelX = graphRect.x + 10;
         float labelY = graphRect.yMax + 5;
 
-        // 真实物理量（未归一化）：Vx 为 m/s，omega 为 deg/s
-        float currentLateralReal = myCarMotion.vx_input;
+        // 真实物理量（未归一化）：omega 为 deg/s
         float currentAngularReal = myCarMotion.omega_input * Mathf.Rad2Deg;
         
-        GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
+        GUILayout.BeginArea(new Rect(labelX, labelY, 360, 40));
         // 第一行：归一化后的比例（-1~1），和动作输出同尺度
-        GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
+        GUILayout.Label($"归一化 - 角速度(ω): {currentAngularNorm:F2}", labelStyle);
         // 第二行：真实物理单位
-        GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", labelStyle);
+        GUILayout.Label($"真实值 - 角速度(ω): {currentAngularReal:F1} deg/s", labelStyle);
         GUILayout.EndArea();
     }
 
@@ -424,13 +408,9 @@ public class MyCar_StateDisplay : MonoBehaviour
             fontStyle = FontStyle.Bold
         };
         
-        // 绘制横向速度图例（青色）
-        Color cyanColor = Color.cyan;
-        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), cyanColor, "横向速度 (Vx)", legendStyle);
-        
         // 绘制角速度图例（洋红色）
         Color magentaColor = Color.magenta;
-        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), magentaColor, "角速度 (ω)", legendStyle);
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 180, 18), magentaColor, "角速度 (ω)", legendStyle);
     }
     
     /// <summary>
@@ -443,9 +423,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         Texture2D colorTex = null;
         
         // 使用预创建的纹理（避免每帧创建）
-        if (color == Color.cyan && _cyanTexture != null)
-            colorTex = _cyanTexture;
-        else if (color == Color.magenta && _magentaTexture != null)
+        if (color == Color.magenta && _magentaTexture != null)
             colorTex = _magentaTexture;
         else
         {
@@ -464,7 +442,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUI.Label(labelRect, label, style);
     }
 
-    void DrawCurveLineWithColor(Rect graphRect, float[] data, Color color, string label)
+    void DrawCurveLineWithColor(Rect graphRect, float[] data, Color color)
     {
         if (data == null || data.Length < 2) return;
         
@@ -499,6 +477,9 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// </summary>
     void DrawLine(Vector2 start, Vector2 end, Color color)
     {
+        EnsureLineMaterial();
+        if (_lineMaterial == null) return;
+        
         GL.PushMatrix();
         GL.LoadOrtho();
         
@@ -512,8 +493,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         start.y = 1f - start.y;
         end.y = 1f - end.y;
         
-        var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
-        mat.SetPass(0);
+        _lineMaterial.SetPass(0);
         
         GL.Begin(GL.LINES);
         GL.Color(color);
@@ -522,6 +502,17 @@ public class MyCar_StateDisplay : MonoBehaviour
         GL.End();
         
         GL.PopMatrix();
+    }
+
+    void EnsureLineMaterial()
+    {
+        if (_lineMaterial != null) return;
+        Shader shader = Shader.Find("Hidden/Internal-Colored");
+        if (shader == null) return;
+        _lineMaterial = new Material(shader)
+        {
+            hideFlags = HideFlags.HideAndDontSave
+        };
     }
 
     /// <summary>
@@ -567,17 +558,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
         labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
-        // 显示惩罚百分比，根据百分比设置颜色（0%绿色，100%红色）
-        Color penaltyPercentColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
-        labelStyle.normal.textColor = penaltyPercentColor;
-        
-        // 计算最大惩罚值（用于显示）
-        // 当输出达到最大值阈值时，比例=1，惩罚值=Penalty×1=Penalty
-        float maxAngularPenalty = myCarAgent.alignedAngularPenalty;
-        float maxLateralPenalty = myCarAgent.alignedLateralPenalty;
-        float maxTotalPenalty = maxAngularPenalty + maxLateralPenalty;
-        
-        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
+        GUILayout.Label($"4. 直线输出限制(5.2): {components.straightOutputPenalty:F4}", 
             labelStyle, GUILayout.Width(rewardRect.width - 20));
         
         // 显示最大惩罚值信息（小字体，灰色）
@@ -586,7 +567,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             fontSize = 10,
             normal = { textColor = Color.gray }
         };
-        GUILayout.Label($"   最大惩罚值: 角速度={maxAngularPenalty:F4}, 横向速度={maxLateralPenalty:F4}, 合计={maxTotalPenalty:F4}", 
+        GUILayout.Label($"   当前为稳定对齐a_w=0目标项（5.2）：二次惩罚 + 近零奖励", 
             infoStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.Space(5);
@@ -726,15 +707,15 @@ public class MyCar_StateDisplay : MonoBehaviour
             Destroy(_bgTexture);
             _bgTexture = null;
         }
-        if (_cyanTexture != null)
-        {
-            Destroy(_cyanTexture);
-            _cyanTexture = null;
-        }
         if (_magentaTexture != null)
         {
             Destroy(_magentaTexture);
             _magentaTexture = null;
+        }
+        if (_lineMaterial != null)
+        {
+            Destroy(_lineMaterial);
+            _lineMaterial = null;
         }
     }
 }

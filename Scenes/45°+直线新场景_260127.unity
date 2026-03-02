@@ -357,7 +357,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c667595f282c2d84c9483eace042e852, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  controlSource: 0
+  controlSource: 1
   wheelColliders:
   - {fileID: 751401904}
   - {fileID: 897324996}
@@ -422,19 +422,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 13
+    VectorObservationSize: 6
     NumStackedVectorObservations: 1
     m_ActionSpec:
-      m_NumContinuousActions: 2
+      m_NumContinuousActions: 1
       BranchSizes: 
-    VectorActionSize: 02000000
+    VectorActionSize: 01000000
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 8073d62bb1bd78e438b79732825fde45, type: 3}
+  m_Model: {fileID: 0}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_260302
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -489,38 +489,33 @@ MonoBehaviour:
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.15
-  maxOmegaDeg: 80
+  maxOmegaDeg: 45
   maxField: 8
-  maxEpisodeTime: 30
+  maxEpisodeTime: 50
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.65
   alignedBonus: 2
   speedHighPercent: 0.6
   speedLowPercent: 0.2
-  speedPenalty: -0.2
   smoothnessBonus: 1
-  stableSmoothnessBonus: 2
-  angularSmoothnessWeight: 1
-  smallOutputBonus: 1.5
-  lateralAngularEquivalenceFactor: 0.562
+  stableSmoothnessBonus: 1.5
+  angularSmoothnessWeight: 0.8
   enableTurningReward: 0
   turningBonus: 0.5
   turningThreshold: 0.5
   derailPenalty: -10
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  alignedAngularPenalty: 1
-  alignedAngularDeadZone: 0.02
-  alignedAngularMaxPenaltyThreshold: 0.2
-  alignedLateralPenalty: 0.9
-  alignedLateralDeadZone: 0.04
-  alignedLateralMaxPenaltyThreshold: 0.2
+  enableStableZeroAwTarget: 1
+  stableZeroAwQuadraticPenalty: 3
+  stableZeroAwNearBonus: 1
+  stableZeroAwBonusScale: 0.015
   enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  stableAlignedTime: 1
-  smoothingAlpha: 0.4
+  stableAlignedTime: 0.8
+  smoothingAlpha: 1
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: 0, y: 0.15, z: 4.5}
@@ -582,14 +577,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tape: {fileID: 1462255779}
   sensors:
-  - {fileID: 1179175742}
-  - {fileID: 1988725124}
-  - {fileID: 1410473136}
-  - {fileID: 1848363869}
-  - {fileID: 1550834400}
-  - {fileID: 1240964160}
-  rb: {fileID: 714007403}
-  myCarMotion: {fileID: 714007404}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  rb: {fileID: 0}
+  myCarMotion: {fileID: 0}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.1
   maxOmegaDeg: 120

@@ -68,8 +68,6 @@ public class MyCarAgent : Agent
     public float speedHighPercent = 0.6f;
     [Tooltip("速度惩罚阈值（10%，放宽以允许转弯减速）")]
     public float speedLowPercent = 0.20f;
-    [Tooltip("速度过低时的惩罚值（-0.5→-0.2，缓和）")]
-    public float speedPenalty = -0.2f;
 
     [Header("3. 平稳性奖励 (Smoothness Reward)")]
     [Tooltip("输出平稳性奖励幅度（转弯时）")]
@@ -80,15 +78,7 @@ public class MyCarAgent : Agent
     [Range(0f, 5f)]
     public float angularSmoothnessWeight = 1.0f;
 
-    [Header("4. 小输出奖励 (Small Output Bonus) - 已弃用")]
-    [Tooltip("【已弃用】小输出奖励已移除，改用直线角速度惩罚。保留此参数仅为兼容性，不会影响奖励计算。")]
-    [System.Obsolete("此奖励项已移除，请使用直线角速度惩罚代替")]
-    public float smallOutputBonus = 1.0f;
-    [Tooltip("横向速度与角速度的配平系数（用于等效二者对车轮转角的影响）\n根据实测：vx归一化6.67%和omega归一化3.75%产生相同转角，系数≈0.562\n【注意】此系数目前仅用于平稳性奖励的配平")]
-    [Range(0.1f, 2.0f)]
-    public float lateralAngularEquivalenceFactor = 0.562f;
-
-    [Header("5. 转弯奖励 (Turning Reward)")]
+    [Header("4. 转弯奖励 (Turning Reward)")]
     [Tooltip("是否启用转弯鼓励奖励（在非对齐状态下奖励坚持转弯）")]
     public bool enableTurningReward = false;
     [Tooltip("转弯鼓励奖励幅度（避免过度激励）")]
@@ -96,7 +86,7 @@ public class MyCarAgent : Agent
     [Tooltip("触发转弯奖励的角速度阈值（0.3，容易触发）")]
     public float turningThreshold = 0.3f;
 
-    [Header("6. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
+    [Header("5. 脱轨/预警惩罚 (Derailment/Warning Penalty)")]
     [Tooltip("脱轨惩罚（负数），脱轨时立即终止回合")]
     public float derailPenalty = -15.0f;
     [Tooltip("预警区域上限（25%，超过此值不惩罚不奖励）")]
@@ -104,23 +94,16 @@ public class MyCarAgent : Agent
     [Tooltip("预警惩罚系数（每帧，18%~25%之间的线性惩罚）")]
     public float warningPenaltyCoefficient = -4.0f;
 
-    [Header("7. 直线输出限制 (Straight Output Constraints)")]
-    [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的角速度幅度 |a_w| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
-    public float alignedAngularPenalty = 1.5f;
-    [Tooltip("在【稳定对齐】时，允许的角速度输出死区：|a_w| 小于此值不惩罚，用于保留微小修正动作")]
-    [Range(0f, 0.5f)]
-    public float alignedAngularDeadZone = 0.035f;
-    [Tooltip("在【稳定对齐】时，角速度输出达到最大值惩罚的阈值：|a_w| 达到此值时惩罚达到最大值，超过此值惩罚不再增加")]
-    [Range(0f, 1f)]
-    public float alignedAngularMaxPenaltyThreshold = 0.3f;
-    [Tooltip("在【稳定对齐】直线跟踪时，对网络输出的横向速度幅度 |a_x| 进行额外惩罚的权重（只影响奖励，不直接裁剪动作）")]
-    public float alignedLateralPenalty = 1.5f;
-    [Tooltip("在【稳定对齐】时，允许的横向速度输出死区：|a_x| 小于此值不惩罚，用于保留微小修正动作")]
-    [Range(0f, 0.5f)]
-    public float alignedLateralDeadZone = 0.05f;
-    [Tooltip("在【稳定对齐】时，横向速度输出达到最大值惩罚的阈值：|a_x| 达到此值时惩罚达到最大值，超过此值惩罚不再增加")]
-    [Range(0f, 1f)]
-    public float alignedLateralMaxPenaltyThreshold = 0.3f;
+    [Header("6. 直线输出限制 (Straight Output Constraints)")]
+    [Tooltip("在【稳定对齐】阶段是否额外启用 a_w=0 目标项（仅影响奖励，不直接裁剪动作）")]
+    public bool enableStableZeroAwTarget = true;
+    [Tooltip("稳定对齐时的二次惩罚系数：penalty = -k * |a_w|^2")]
+    public float stableZeroAwQuadraticPenalty = 3.0f;
+    [Tooltip("稳定对齐时的近零奖励幅度：bonus = b * exp(-|a_w|/s)")]
+    public float stableZeroAwNearBonus = 0.2f;
+    [Tooltip("稳定对齐时近零奖励衰减尺度 s（越小越要求接近0）")]
+    [Range(0.005f, 0.2f)]
+    public float stableZeroAwBonusScale = 0.04f;
 
     [Header("Reward Tracking (for Display)")]
     [Tooltip("是否启用奖励跟踪（用于UI显示）")]
@@ -171,18 +154,13 @@ public class MyCarAgent : Agent
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
     // 动作记忆（用于观察空间）
-    private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
-    private float prevLateralSpeed = 0f;        // 前一帧的横向速度（用于平稳性计算）
-    private float prevAngularSpeed = 0f;        // 前一帧的角速度（用于平稳性计算）
-    private float lastRawLateralAction = 0f;    // 上一帧的原始神经网络输出（横向速度比例）
     private float lastRawAngularAction = 0f;    // 上一帧的原始神经网络输出（角速度比例）
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
     
     [Header("Output Smoothing")]
     [Range(0f, 1f)]
     public float smoothingAlpha = 0.4f;  // 指数平滑系数（0=完全平滑，1=无平滑）。建议0.2-0.4
-    private float smoothedLateralSpeed = 0f;   // 平滑后的横向速度
     private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
 
     [Header("Start pose")]
@@ -335,13 +313,8 @@ public class MyCarAgent : Agent
         episodeTimer = 0f;
         alignedTimer = 0f;
         isStableAligned = false;
-        lastOutputLateralSpeed = 0f;
         lastOutputAngularSpeed = 0f;
-        prevLateralSpeed = 0f;
-        prevAngularSpeed = 0f;
-        smoothedLateralSpeed = 0f;  // 初始化平滑缓冲
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
-        lastRawLateralAction = 0f;  // 初始化原始动作
         lastRawAngularAction = 0f;  // 初始化原始动作
         
         // 重置奖励跟踪
@@ -382,40 +355,39 @@ public class MyCarAgent : Agent
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        // 1-6: 六个传感器的归一化强度（环境感知）
-        for (int i = 0; i < sensors.Length; i++)
+        // 观测维度（6维）：
+        // 1) 前左右差值，2) 后左右差值，3) 上一步模型输出a_w，4-6) 实际运动反馈(vz,vx,omega)
+        float frontLeft = 0f, frontRight = 0f, rearLeft = 0f, rearRight = 0f;
+        if (sensors != null && sensors.Length >= 6 && tape != null)
         {
-            if (sensors[i] != null && tape != null)
-            {
-                Vector3 mag = tape.GetMagneticField(sensors[i].position);
-                sensor.AddObservation(Mathf.Clamp01(mag.magnitude / Mathf.Max(1e-9f, maxField)));
-            }
-            else sensor.AddObservation(0f);
+            if (sensors[0] != null) frontLeft = tape.GetMagneticField(sensors[0].position).magnitude;
+            if (sensors[2] != null) frontRight = tape.GetMagneticField(sensors[2].position).magnitude;
+            if (sensors[3] != null) rearLeft = tape.GetMagneticField(sensors[3].position).magnitude;
+            if (sensors[5] != null) rearRight = tape.GetMagneticField(sensors[5].position).magnitude;
         }
 
-        // 7-8: 智能体上一次输出的平滑后的横向速度和自转速度（决策记忆）
-        sensor.AddObservation(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));  // 7: 平滑输出横向速度
-        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        sensor.AddObservation(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));                          // 8: 平滑输出自转速度
+        float frontDiffNorm = Mathf.Clamp((frontLeft - frontRight) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        float rearDiffNorm = Mathf.Clamp((rearLeft - rearRight) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        sensor.AddObservation(frontDiffNorm);
+        sensor.AddObservation(rearDiffNorm);
+        sensor.AddObservation(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
 
-        // 9-10: 原始神经网络输出动作（用于感知平滑延迟）
-        sensor.AddObservation(Mathf.Clamp(lastRawLateralAction, -1f, 1f));   // 9: 原始横向动作
-        sensor.AddObservation(Mathf.Clamp(lastRawAngularAction, -1f, 1f));   // 10: 原始角速度动作
-
-        // 11-13: 车身实际运动状态（物理反馈）
+        // 4-6: 车身实际运动状态（物理反馈）
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
         
-        sensor.AddObservation(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));  // 11: 实际前进速度
-        sensor.AddObservation(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));      // 12: 实际横向速度
-        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));                              // 13: 实际角速度
+        sensor.AddObservation(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));
+        sensor.AddObservation(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
+        sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     { 
-        // 连续动作：0=横向速度比例，1=自转速度比例
-        float a_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
-        float a_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        // 连续动作：仅保留1维 a_w（自转速度比例）
+        float a_w = (actions.ContinuousActions.Length > 0)
+            ? Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f)
+            : 0f;
 
         // ========== 数据收集（如果启用） ==========
         if (enableDataCollection)
@@ -437,29 +409,23 @@ public class MyCarAgent : Agent
                 }
                 else
                 {
-                    RecordSample(a_x, a_w);
+                    RecordSample(a_w);
                     episodeDataCount++;  // 记录当前回合的数据数量
                 }
             }
             else
             {
                 // 无限制，正常采集
-                RecordSample(a_x, a_w);
+                RecordSample(a_w);
                 episodeDataCount++;  // 记录当前回合的数据数量
             }
         }
 
-        // 保存原始动作用于下一帧观察（供平滑延迟感知）
-        lastRawLateralAction = a_x;
-        lastRawAngularAction = a_w;
-
         // ========== 应用指数平滑滤波减少震荡 ==========
         // 指数平滑：smoothed = α·raw + (1-α)·smoothed_prev
         // α 越小越平滑（但响应延迟增加），建议 0.2-0.4
-        float rawLateralSpeed = a_x * maxLateralSpeed;
         float rawAngularSpeed = a_w * maxOmegaDeg * Mathf.Deg2Rad;
         
-        smoothedLateralSpeed = Mathf.Lerp(smoothedLateralSpeed, rawLateralSpeed, smoothingAlpha);
         smoothedAngularSpeed = Mathf.Lerp(smoothedAngularSpeed, rawAngularSpeed, smoothingAlpha);
 
         // 读取传感器数据
@@ -494,11 +460,10 @@ public class MyCarAgent : Agent
 
         // ========== 动作输出处理 ==========
         // 使用平滑后的输出
-        float outputVx = smoothedLateralSpeed;
+        float outputVx = 0f;
         float outputOmega = smoothedAngularSpeed;
 
         // 保存本次输出（用于下一次观察）
-        lastOutputLateralSpeed = outputVx;
         lastOutputAngularSpeed = outputOmega;
 
         // 映射到真实控制量（vz固定）
@@ -507,10 +472,6 @@ public class MyCarAgent : Agent
         // 下发给 MyCar_Motion 控制车辆
         if (myCarMotion != null) myCarMotion.SetControl(vz, outputVx, outputOmega);
         
-        // 更新前一帧数据（用于计算平稳性）
-        prevLateralSpeed = outputVx;
-        prevAngularSpeed = outputOmega;
-
         // ========== 终止条件1：脱轨检测（立即判定） ==========
         float frontCenter = sensorValues[1];  // 前中
         float rearCenter = sensorValues[4];   // 后中
@@ -554,7 +515,7 @@ public class MyCarAgent : Agent
             episodeEndedByDerailment = true;
             
             // ========== 记录脱轨信息 ==========
-            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_x, a_w, outputVx, outputOmega);
+            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_w, outputOmega);
             
             if (enableDebugLog)
             {
@@ -592,7 +553,7 @@ public class MyCarAgent : Agent
         // 25%以上：不惩罚不奖励（正常状态，继续正常奖励计算）
 
         // ========== 计算奖励 ==========
-        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_x, a_w, outputVx, outputOmega);
+        float reward = CalculateReward(sensorValues, isAligned, isStableAligned, a_w);
         float rewardThisFrame = reward * Time.fixedDeltaTime;
         AddReward(rewardThisFrame);
         
@@ -609,6 +570,9 @@ public class MyCarAgent : Agent
                 rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
             }
         }
+
+        // 奖励计算结束后，记录本帧原始动作供下一帧平稳性比较与观测使用
+        lastRawAngularAction = a_w;
 
         // ========== 终止条件2：超时 ==========
         episodeTimer += Time.fixedDeltaTime;
@@ -650,7 +614,7 @@ public class MyCarAgent : Agent
         return leftRightAligned && centerStrong;
     }
 
-    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, float a_x, float a_w, float outputVx, float outputOmega)
+    float CalculateReward(float[] s, bool isAligned, bool isStableAligned, float a_w)
     {
         if (s == null || s.Length < 6) return -1f;
 
@@ -721,18 +685,14 @@ public class MyCarAgent : Agent
 
 
         // ========== 3. 平稳性奖励（扩展到所有状态，不仅仅对齐状态） ==========
-        // 计算输出平稳性：奖励变化小的输出，抑制频繁的方向改变
-        float lateralDelta = Mathf.Abs(prevLateralSpeed - outputVx) / Mathf.Max(0.001f, maxLateralSpeed);
-        float angularDelta = Mathf.Abs(prevAngularSpeed - outputOmega) / Mathf.Max(0.001f, maxOmegaDeg * Mathf.Deg2Rad);
-        
-        // 应用配平系数：使 vx 和 omega 对车轮转角的影响等效
-        // 配平后的横向变化量：lateralDelta_equivalent = lateralDelta * lateralAngularEquivalenceFactor
-        float lateralDelta_equivalent = lateralDelta * lateralAngularEquivalenceFactor;
+        // 仅基于原始动作 a_w 的相邻帧变化，奖励变化小的输出
+        // a_w 范围[-1,1]，差值范围[0,2]，归一化到[0,1]
+        float angularDelta = Mathf.Abs(lastRawAngularAction - a_w) * 0.5f;
         
         // 平稳性指标：变化越小越好（指数衰减）
         // 对自转速度应用权重，使其变化更显著地影响平稳度评分
         // 例如：angularSmoothnessWeight=2.0 时，角速度变化的影响翻倍
-        float weightedDelta = lateralDelta_equivalent + (angularDelta * angularSmoothnessWeight);
+        float weightedDelta = angularDelta * angularSmoothnessWeight;
         float smoothness = Mathf.Exp(-weightedDelta * 2f);  // *2f 使衰减更陡峭
         
         // 在稳定对齐状态使用强化的平稳性奖励
@@ -743,14 +703,7 @@ public class MyCarAgent : Agent
         // 当 smoothness=0.37（e^-1）时：reward ≈ 0
         float smoothnessReward = (smoothness - 0.37f) * appliedSmoothnessBonus;  // 中立点在 e^-1 ≈ 0.37
         
-        // ========== 4. 小输出奖励（已移除）==========
-        // 【已移除】小输出奖励已被直线角速度惩罚替代，因为：
-        // 1. 目标更明确：专门针对角速度抖动问题
-        // 2. 死区更合理：允许微小修正（0.05），避免过度约束
-        // 3. 惩罚更有效：负向信号能更快抑制不良行为
-        float outputBonus = 0f;
-
-        // ========== 5. 转弯鼓励奖励：在转弯时（非对齐状态）奖励坚持转弯 ==========
+        // ========== 4. 转弯鼓励奖励：在转弯时（非对齐状态）奖励坚持转弯 ==========
         float turningReward = 0f;
         if (enableTurningReward && !isAligned)  // 只在启用开关且非对齐模式（转弯阶段）启用
         {
@@ -762,71 +715,24 @@ public class MyCarAgent : Agent
                 turningReward = Mathf.Min(angularMagnitude * turningBonus, turningBonus);
             }
         }
-
-        // ========== 6. 对齐直线阶段的输出限制（只在稳定对齐时生效）==========
-        // 惩罚计算说明：
-        // - 死区内（输出 < 死区值）：无惩罚（0%）
-        // - 死区到最大值阈值之间：线性惩罚（0% → 100%）
-        // - 超过最大值阈值：达到最大惩罚值（100%）
-        // 
-        // 惩罚计算公式：
-        //   惩罚值 = Penalty × (输出值 - 死区) / (最大值阈值 - 死区)
-        //   百分比 = (输出值 - 死区) / (最大值阈值 - 死区) × 100%
-        // 
-        // 当输出值 = 最大值阈值时，惩罚值 = Penalty，百分比 = 100%
-        // 当输出值 = 死区时，惩罚值 = 0，百分比 = 0%
-        // 
-        // 默认参数下的最大惩罚值（当输出达到最大值阈值时）：
-        //   角速度：alignedAngularPenalty = 1.5
-        //   横向速度：alignedLateralPenalty = 1.5
+ 
+        // ========== 5. 对齐直线阶段的输出限制（仅保留5.2：a_w=0目标项）==========
         float straightOutputPenalty = 0f;
         float straightOutputPenaltyPercent = 0f;  // 惩罚百分比（0-100%）
         if (isStableAligned)
         {
-            float angularPenaltyPercent = 0f;
-            float lateralPenaltyPercent = 0f;
-            
-            // 6.1 角速度惩罚：使用网络原始输出 a_w（-1~1），避免被物理上限掩盖真实抖动
             float absAw = Mathf.Abs(a_w);
-            if (absAw > alignedAngularDeadZone && alignedAngularPenalty > 0f)
+
+            // 5.2 稳定对齐时强制靠近 a_w=0：二次惩罚 + 近零奖励
+            if (enableStableZeroAwTarget)
             {
-                // 计算死区到最大值阈值之间的范围
-                float penaltyRange = Mathf.Max(0.001f, alignedAngularMaxPenaltyThreshold - alignedAngularDeadZone);
-                
-                // 计算比例：(输出值 - 死区) / (最大值阈值 - 死区)
-                float ratio = Mathf.Clamp01((absAw - alignedAngularDeadZone) / penaltyRange);
-                
-                // 惩罚值 = Penalty × 比例
-                float penaltyValue = alignedAngularPenalty * ratio;
-                straightOutputPenalty -= penaltyValue;
-                
-                // 计算角速度惩罚百分比（0-100%）
-                angularPenaltyPercent = ratio * 100f;
+                float quadraticPenalty = -stableZeroAwQuadraticPenalty * absAw * absAw;
+                float nearZeroBonus = stableZeroAwNearBonus * Mathf.Exp(-absAw / Mathf.Max(0.001f, stableZeroAwBonusScale));
+                straightOutputPenalty += quadraticPenalty + nearZeroBonus;
             }
-            
-            // 6.2 横向速度惩罚：使用网络原始输出 a_x（-1~1）
-            float absAx = Mathf.Abs(a_x);
-            if (absAx > alignedLateralDeadZone && alignedLateralPenalty > 0f)
-            {
-                // 计算死区到最大值阈值之间的范围
-                float penaltyRange = Mathf.Max(0.001f, alignedLateralMaxPenaltyThreshold - alignedLateralDeadZone);
-                
-                // 计算比例：(输出值 - 死区) / (最大值阈值 - 死区)
-                float ratio = Mathf.Clamp01((absAx - alignedLateralDeadZone) / penaltyRange);
-                
-                // 惩罚值 = Penalty × 比例
-                float penaltyValue = alignedLateralPenalty * ratio;
-                straightOutputPenalty -= penaltyValue;
-                
-                // 计算横向速度惩罚百分比（0-100%）
-                lateralPenaltyPercent = ratio * 100f;
-            }
-            
-            // 惩罚百分比取两者中的较大值（因为惩罚是两者相加的）
-            straightOutputPenaltyPercent = Mathf.Max(angularPenaltyPercent, lateralPenaltyPercent);
         }
 
-        // ========== 7. 最终奖励 ==========
+        // ========== 6. 最终奖励 ==========
         // 对齐奖励 × 速度系数：基础轨迹跟踪奖励
         // + 平稳性奖励：鼓励稳定输出，抑制频繁震荡
         // + 转弯奖励：转弯时鼓励坚持而不是改变
@@ -856,12 +762,12 @@ public class MyCarAgent : Agent
     }
 
     // ========== 数据收集方法 ==========
-    private void RecordSample(float actionX, float actionW)
+    private void RecordSample(float actionW)
     {
         // 重新计算观测（与CollectObservations逻辑相同）
         List<float> observations = new List<float>();
 
-        // 1-6: 六个传感器的归一化强度
+        // 1-2: 前后左右差值
         float[] sensorValues = new float[6];
         for (int i = 0; i < sensors.Length; i++)
         {
@@ -869,36 +775,31 @@ public class MyCarAgent : Agent
             {
                 Vector3 mag = tape.GetMagneticField(sensors[i].position);
                 sensorValues[i] = mag.magnitude;
-                observations.Add(Mathf.Clamp01(mag.magnitude / Mathf.Max(1e-9f, maxField)));
             }
-            else observations.Add(0f);
         }
+        float frontDiffNorm = Mathf.Clamp((sensorValues[0] - sensorValues[2]) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        float rearDiffNorm = Mathf.Clamp((sensorValues[3] - sensorValues[5]) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        observations.Add(frontDiffNorm);
+        observations.Add(rearDiffNorm);
 
-        // 7-8: 平滑后的输出
-        observations.Add(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
-        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        observations.Add(Mathf.Clamp(lastOutputAngularSpeed / maxOmegaRad, -2f, 2f));
-
-        // 9-10: 原始动作
-        observations.Add(Mathf.Clamp(lastRawLateralAction, -1f, 1f));
+        // 3: 上一步模型输出a_w
         observations.Add(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
 
-        // 11-13: 物理状态
+        // 4-6: 物理状态
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
         observations.Add(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));
         observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
         observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
 
-        // 构建CSV行：obs[0-12],action[0-1]
+        // 构建CSV行：obs[0-5],action_w
         StringBuilder sb = new StringBuilder();
         foreach (float obs in observations)
         {
             sb.Append(obs.ToString("F6"));
             sb.Append(",");
         }
-        sb.Append(actionX.ToString("F6"));
-        sb.Append(",");
         sb.Append(actionW.ToString("F6"));
         
         collectedData.Add(sb.ToString());
@@ -973,12 +874,7 @@ public class MyCarAgent : Agent
             // 如果文件不存在或未写入头部，先写入头部
             if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
             {
-                // 注意：最后两列是当前帧的原始动作（actionX, actionW），不是输出动作
-                string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
-                               "smoothed_vx,smoothed_omega," +
-                               "raw_action_x,raw_action_w," +
-                               "actual_vz,actual_vx,actual_omega," +
-                               "action_x,action_w";
+                string header = "front_diff,rear_diff,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
                 File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
                 episodeDataHeaderWritten = true;
             }
@@ -1055,12 +951,7 @@ public class MyCarAgent : Agent
         
         // 生成CSV头部
         List<string> csv = new List<string>();
-        // 注意：最后两列是当前帧的原始动作（actionX, actionW），不是输出动作
-        string header = "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
-                       "smoothed_vx,smoothed_omega," +
-                       "raw_action_x,raw_action_w," +
-                       "actual_vz,actual_vx,actual_omega," +
-                       "action_x,action_w";
+        string header = "front_diff,rear_diff,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
         csv.Add(header);
         csv.AddRange(collectedData);
 
@@ -1189,8 +1080,7 @@ public class MyCarAgent : Agent
                                "angular_velocity_y," +
                                "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
                                "front_center,rear_center,threshold," +
-                               "action_x,action_w," +
-                               "output_vx,output_omega," +
+                               "action_w,output_omega," +
                                "is_aligned,is_stable_aligned";
                 File.WriteAllText(derailmentLogFilePath, header + System.Environment.NewLine);
                 Debug.Log($"[DerailmentLog] 脱轨日志文件已初始化: {derailmentLogFilePath}");
@@ -1207,8 +1097,7 @@ public class MyCarAgent : Agent
     /// 记录脱轨信息
     /// </summary>
     private void RecordDerailment(float[] sensorValues, float frontCenter, float rearCenter, 
-                                  float threshold, float actionX, float actionW, 
-                                  float outputVx, float outputOmega)
+                                  float threshold, float actionW, float outputOmega)
     {
         if (!enableDerailmentLogging || derailmentLogFilePath == null)
         {
@@ -1262,12 +1151,8 @@ public class MyCarAgent : Agent
             sb.Append(rearCenter.ToString("F6")); sb.Append(",");
             sb.Append(threshold.ToString("F6")); sb.Append(",");
             
-            // 动作
-            sb.Append(actionX.ToString("F6")); sb.Append(",");
+            // 动作与输出
             sb.Append(actionW.ToString("F6")); sb.Append(",");
-            
-            // 输出
-            sb.Append(outputVx.ToString("F6")); sb.Append(",");
             sb.Append(outputOmega.ToString("F6")); sb.Append(",");
             
             // 对齐状态
