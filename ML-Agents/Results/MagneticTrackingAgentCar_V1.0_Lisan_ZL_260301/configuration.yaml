@@ -56,21 +56,21 @@ env_settings:
   restarts_rate_limit_n: 1
   restarts_rate_limit_period_s: 60
 engine_settings:
-  width: 840
-  height: 650
+  width: 84
+  height: 84
   quality_level: 5
   time_scale: 20.0
   target_frame_rate: -1
   capture_frame_rate: 60
-  no_graphics: false
+  no_graphics: true
   no_graphics_monitor: false
 environment_parameters: null
 checkpoint_settings:
   run_id: MagneticTrackingAgentCar_V1.0_Lisan_ZL_260301
   initialize_from: null
   load_model: false
-  resume: false
-  force: true
+  resume: true
+  force: false
   train_model: false
   inference: false
   results_dir: D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Assets/ML-Agents/Results
