@@ -422,7 +422,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 6
+    VectorObservationSize: 8
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 1
@@ -434,7 +434,7 @@ MonoBehaviour:
   m_Model: {fileID: 0}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_260302
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_260303_c8
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -507,7 +507,7 @@ MonoBehaviour:
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
   enableStableZeroAwTarget: 1
-  stableZeroAwQuadraticPenalty: 3
+  stableZeroAwQuadraticPenalty: 1.8
   stableZeroAwNearBonus: 1
   stableZeroAwBonusScale: 0.015
   enableRewardTracking: 0

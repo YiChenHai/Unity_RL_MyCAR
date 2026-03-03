@@ -355,21 +355,29 @@ public class MyCarAgent : Agent
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        // 观测维度（6维）：
-        // 1) 前左右差值，2) 后左右差值，3) 上一步模型输出a_w，4-6) 实际运动反馈(vz,vx,omega)
-        float frontLeft = 0f, frontRight = 0f, rearLeft = 0f, rearRight = 0f;
+        // 观测维度（8维）：
+        // 1) 前左右差值，2) 后左右差值，3) 前中传感器，4) 后中传感器，
+        // 5) 上一步模型输出a_w，6-8) 实际运动反馈(vz,vx,omega)
+        float frontLeft = 0f, frontCenter = 0f, frontRight = 0f;
+        float rearLeft = 0f, rearCenter = 0f, rearRight = 0f;
         if (sensors != null && sensors.Length >= 6 && tape != null)
         {
             if (sensors[0] != null) frontLeft = tape.GetMagneticField(sensors[0].position).magnitude;
+            if (sensors[1] != null) frontCenter = tape.GetMagneticField(sensors[1].position).magnitude;
             if (sensors[2] != null) frontRight = tape.GetMagneticField(sensors[2].position).magnitude;
             if (sensors[3] != null) rearLeft = tape.GetMagneticField(sensors[3].position).magnitude;
+            if (sensors[4] != null) rearCenter = tape.GetMagneticField(sensors[4].position).magnitude;
             if (sensors[5] != null) rearRight = tape.GetMagneticField(sensors[5].position).magnitude;
         }
 
         float frontDiffNorm = Mathf.Clamp((frontLeft - frontRight) / Mathf.Max(1e-9f, maxField), -1f, 1f);
         float rearDiffNorm = Mathf.Clamp((rearLeft - rearRight) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        float frontCenterNorm = Mathf.Clamp01(frontCenter / Mathf.Max(1e-9f, maxField));
+        float rearCenterNorm = Mathf.Clamp01(rearCenter / Mathf.Max(1e-9f, maxField));
         sensor.AddObservation(frontDiffNorm);
         sensor.AddObservation(rearDiffNorm);
+        sensor.AddObservation(frontCenterNorm);
+        sensor.AddObservation(rearCenterNorm);
         sensor.AddObservation(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
 
         // 4-6: 车身实际运动状态（物理反馈）
@@ -767,7 +775,7 @@ public class MyCarAgent : Agent
         // 重新计算观测（与CollectObservations逻辑相同）
         List<float> observations = new List<float>();
 
-        // 1-2: 前后左右差值
+        // 1-4: 前后左右差值 + 前后中心传感器值
         float[] sensorValues = new float[6];
         for (int i = 0; i < sensors.Length; i++)
         {
@@ -779,13 +787,17 @@ public class MyCarAgent : Agent
         }
         float frontDiffNorm = Mathf.Clamp((sensorValues[0] - sensorValues[2]) / Mathf.Max(1e-9f, maxField), -1f, 1f);
         float rearDiffNorm = Mathf.Clamp((sensorValues[3] - sensorValues[5]) / Mathf.Max(1e-9f, maxField), -1f, 1f);
+        float frontCenterNorm = Mathf.Clamp01(sensorValues[1] / Mathf.Max(1e-9f, maxField));
+        float rearCenterNorm = Mathf.Clamp01(sensorValues[4] / Mathf.Max(1e-9f, maxField));
         observations.Add(frontDiffNorm);
         observations.Add(rearDiffNorm);
+        observations.Add(frontCenterNorm);
+        observations.Add(rearCenterNorm);
 
-        // 3: 上一步模型输出a_w
+        // 5: 上一步模型输出a_w
         observations.Add(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
 
-        // 4-6: 物理状态
+        // 6-8: 物理状态
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
@@ -793,7 +805,7 @@ public class MyCarAgent : Agent
         observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
         observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
 
-        // 构建CSV行：obs[0-5],action_w
+        // 构建CSV行：obs[0-7],action_w
         StringBuilder sb = new StringBuilder();
         foreach (float obs in observations)
         {
@@ -874,7 +886,7 @@ public class MyCarAgent : Agent
             // 如果文件不存在或未写入头部，先写入头部
             if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
             {
-                string header = "front_diff,rear_diff,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
+                string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
                 File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
                 episodeDataHeaderWritten = true;
             }
@@ -951,7 +963,7 @@ public class MyCarAgent : Agent
         
         // 生成CSV头部
         List<string> csv = new List<string>();
-        string header = "front_diff,rear_diff,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
+        string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
         csv.Add(header);
         csv.AddRange(collectedData);
 
