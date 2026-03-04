@@ -431,10 +431,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 0}
+  m_Model: {fileID: 5022602860645237092, guid: 99349c3acc021034ebd95b413aa1b07a, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_260303_c8
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_260304_80
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -489,7 +489,7 @@ MonoBehaviour:
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.15
-  maxOmegaDeg: 45
+  maxOmegaDeg: 80
   maxField: 8
   maxEpisodeTime: 50
   alignedThresholdPercent: 0.1
@@ -506,7 +506,7 @@ MonoBehaviour:
   derailPenalty: -10
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  enableStableZeroAwTarget: 1
+  enableStableZeroAwTarget: 0
   stableZeroAwQuadraticPenalty: 1.8
   stableZeroAwNearBonus: 1
   stableZeroAwBonusScale: 0.015
