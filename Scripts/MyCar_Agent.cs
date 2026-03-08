@@ -154,6 +154,7 @@ public class MyCarAgent : Agent
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
     // 动作记忆（用于观察空间）
+    private float lastOutputLateralSpeed = 0f;  // 上一次输出的横向速度
     private float lastOutputAngularSpeed = 0f;  // 上一次输出的自转速度
     private float lastRawAngularAction = 0f;    // 上一帧的原始神经网络输出（角速度比例）
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
@@ -161,6 +162,7 @@ public class MyCarAgent : Agent
     [Header("Output Smoothing")]
     [Range(0f, 1f)]
     public float smoothingAlpha = 0.4f;  // 指数平滑系数（0=完全平滑，1=无平滑）。建议0.2-0.4
+    private float smoothedLateralSpeed = 0f;   // 平滑后的横向速度
     private float smoothedAngularSpeed = 0f;   // 平滑后的角速度
 
     [Header("Start pose")]
@@ -313,7 +315,9 @@ public class MyCarAgent : Agent
         episodeTimer = 0f;
         alignedTimer = 0f;
         isStableAligned = false;
+        lastOutputLateralSpeed = 0f;
         lastOutputAngularSpeed = 0f;
+        smoothedLateralSpeed = 0f;  // 初始化平滑缓冲
         smoothedAngularSpeed = 0f;  // 初始化平滑缓冲
         lastRawAngularAction = 0f;  // 初始化原始动作
         
@@ -355,9 +359,9 @@ public class MyCarAgent : Agent
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        // 观测维度（8维）：
+        // 观测维度（9维）：
         // 1) 前左右差值，2) 后左右差值，3) 前中传感器，4) 后中传感器，
-        // 5) 上一步模型输出a_w，6-8) 实际运动反馈(vz,vx,omega)
+        // 5) 上一步模型输出a_w，6) 上一步输出横向速度，7-9) 实际运动反馈(vz,vx,omega)
         float frontLeft = 0f, frontCenter = 0f, frontRight = 0f;
         float rearLeft = 0f, rearCenter = 0f, rearRight = 0f;
         if (sensors != null && sensors.Length >= 6 && tape != null)
@@ -379,8 +383,9 @@ public class MyCarAgent : Agent
         sensor.AddObservation(frontCenterNorm);
         sensor.AddObservation(rearCenterNorm);
         sensor.AddObservation(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
+        sensor.AddObservation(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
 
-        // 4-6: 车身实际运动状态（物理反馈）
+        // 7-9: 车身实际运动状态（物理反馈）
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
@@ -392,9 +397,12 @@ public class MyCarAgent : Agent
 
     public override void OnActionReceived(ActionBuffers actions)
     { 
-        // 连续动作：仅保留1维 a_w（自转速度比例）
-        float a_w = (actions.ContinuousActions.Length > 0)
+        // 连续动作：0=a_x（横向速度比例），1=a_w（自转速度比例）
+        float a_x = (actions.ContinuousActions.Length > 0)
             ? Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f)
+            : 0f;
+        float a_w = (actions.ContinuousActions.Length > 1)
+            ? Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f)
             : 0f;
 
         // ========== 数据收集（如果启用） ==========
@@ -417,14 +425,14 @@ public class MyCarAgent : Agent
                 }
                 else
                 {
-                    RecordSample(a_w);
+                    RecordSample(a_x, a_w);
                     episodeDataCount++;  // 记录当前回合的数据数量
                 }
             }
             else
             {
                 // 无限制，正常采集
-                RecordSample(a_w);
+                RecordSample(a_x, a_w);
                 episodeDataCount++;  // 记录当前回合的数据数量
             }
         }
@@ -432,8 +440,10 @@ public class MyCarAgent : Agent
         // ========== 应用指数平滑滤波减少震荡 ==========
         // 指数平滑：smoothed = α·raw + (1-α)·smoothed_prev
         // α 越小越平滑（但响应延迟增加），建议 0.2-0.4
+        float rawLateralSpeed = a_x * maxLateralSpeed;
         float rawAngularSpeed = a_w * maxOmegaDeg * Mathf.Deg2Rad;
         
+        smoothedLateralSpeed = Mathf.Lerp(smoothedLateralSpeed, rawLateralSpeed, smoothingAlpha);
         smoothedAngularSpeed = Mathf.Lerp(smoothedAngularSpeed, rawAngularSpeed, smoothingAlpha);
 
         // 读取传感器数据
@@ -468,10 +478,11 @@ public class MyCarAgent : Agent
 
         // ========== 动作输出处理 ==========
         // 使用平滑后的输出
-        float outputVx = 0f;
+        float outputVx = smoothedLateralSpeed;
         float outputOmega = smoothedAngularSpeed;
 
         // 保存本次输出（用于下一次观察）
+        lastOutputLateralSpeed = outputVx;
         lastOutputAngularSpeed = outputOmega;
 
         // 映射到真实控制量（vz固定）
@@ -523,7 +534,7 @@ public class MyCarAgent : Agent
             episodeEndedByDerailment = true;
             
             // ========== 记录脱轨信息 ==========
-            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_w, outputOmega);
+            RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, a_x, a_w, outputVx, outputOmega);
             
             if (enableDebugLog)
             {
@@ -770,7 +781,7 @@ public class MyCarAgent : Agent
     }
 
     // ========== 数据收集方法 ==========
-    private void RecordSample(float actionW)
+    private void RecordSample(float actionX, float actionW)
     {
         // 重新计算观测（与CollectObservations逻辑相同）
         List<float> observations = new List<float>();
@@ -796,8 +807,10 @@ public class MyCarAgent : Agent
 
         // 5: 上一步模型输出a_w
         observations.Add(Mathf.Clamp(lastRawAngularAction, -1f, 1f));
+        // 6: 上一步输出横向速度（归一化）
+        observations.Add(Mathf.Clamp(lastOutputLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
 
-        // 6-8: 物理状态
+        // 7-9: 物理状态
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
@@ -805,13 +818,15 @@ public class MyCarAgent : Agent
         observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
         observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
 
-        // 构建CSV行：obs[0-7],action_w
+        // 构建CSV行：obs[0-8],action_x,action_w
         StringBuilder sb = new StringBuilder();
         foreach (float obs in observations)
         {
             sb.Append(obs.ToString("F6"));
             sb.Append(",");
         }
+        sb.Append(actionX.ToString("F6"));
+        sb.Append(",");
         sb.Append(actionW.ToString("F6"));
         
         collectedData.Add(sb.ToString());
@@ -886,7 +901,7 @@ public class MyCarAgent : Agent
             // 如果文件不存在或未写入头部，先写入头部
             if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
             {
-                string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
+                string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,last_output_vx,actual_vz,actual_vx,actual_omega,action_x,action_w";
                 File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
                 episodeDataHeaderWritten = true;
             }
@@ -963,7 +978,7 @@ public class MyCarAgent : Agent
         
         // 生成CSV头部
         List<string> csv = new List<string>();
-        string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,actual_vz,actual_vx,actual_omega,action_w";
+        string header = "front_diff,rear_diff,front_center,rear_center,last_action_w,last_output_vx,actual_vz,actual_vx,actual_omega,action_x,action_w";
         csv.Add(header);
         csv.AddRange(collectedData);
 
@@ -1092,7 +1107,8 @@ public class MyCarAgent : Agent
                                "angular_velocity_y," +
                                "sensor0,sensor1,sensor2,sensor3,sensor4,sensor5," +
                                "front_center,rear_center,threshold," +
-                               "action_w,output_omega," +
+                               "action_x,action_w," +
+                               "output_vx,output_omega," +
                                "is_aligned,is_stable_aligned";
                 File.WriteAllText(derailmentLogFilePath, header + System.Environment.NewLine);
                 Debug.Log($"[DerailmentLog] 脱轨日志文件已初始化: {derailmentLogFilePath}");
@@ -1109,7 +1125,7 @@ public class MyCarAgent : Agent
     /// 记录脱轨信息
     /// </summary>
     private void RecordDerailment(float[] sensorValues, float frontCenter, float rearCenter, 
-                                  float threshold, float actionW, float outputOmega)
+                                  float threshold, float actionX, float actionW, float outputVx, float outputOmega)
     {
         if (!enableDerailmentLogging || derailmentLogFilePath == null)
         {
@@ -1164,7 +1180,9 @@ public class MyCarAgent : Agent
             sb.Append(threshold.ToString("F6")); sb.Append(",");
             
             // 动作与输出
+            sb.Append(actionX.ToString("F6")); sb.Append(",");
             sb.Append(actionW.ToString("F6")); sb.Append(",");
+            sb.Append(outputVx.ToString("F6")); sb.Append(",");
             sb.Append(outputOmega.ToString("F6")); sb.Append(",");
             
             // 对齐状态

@@ -1,5 +1,5 @@
 behaviors:
-  MagneticTrackingAgentCar_V1.0_MoHu_260304_80:
+  MagneticTrackingAgentCar_V1.0_MoHu_260304_802z:
     trainer_type: ppo
     hyperparameters:
       batch_size: 2048
