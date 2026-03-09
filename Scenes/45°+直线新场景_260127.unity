@@ -422,7 +422,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 13
+    VectorObservationSize: 9
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
@@ -431,10 +431,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 8ae1ae7db051e764ebe14918239cc24c, type: 3}
+  m_Model: {fileID: 0}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_260309
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -488,39 +488,34 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.15
-  maxOmegaDeg: 80
+  maxLateralSpeed: 0.2
+  maxOmegaDeg: 45
   maxField: 8
-  maxEpisodeTime: 30
+  maxEpisodeTime: 50
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.65
-  alignedBonus: 0.5
+  alignedBonus: 2
   speedHighPercent: 0.6
   speedLowPercent: 0.2
-  speedPenalty: -0.2
-  smoothnessBonus: 1
-  stableSmoothnessBonus: 2
-  angularSmoothnessWeight: 1
-  smallOutputBonus: 1.5
-  lateralAngularEquivalenceFactor: 0.562
-  enableTurningReward: 0
-  turningBonus: 0.5
-  turningThreshold: 0.5
+  speedPenalty: -2
   derailPenalty: -10
+  derailThresholdPercent: 0.18
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  alignedAngularPenalty: 1
-  alignedAngularDeadZone: 0.02
-  alignedAngularMaxPenaltyThreshold: 0.05
-  alignedLateralPenalty: 1
-  alignedLateralDeadZone: 0.04
-  alignedLateralMaxPenaltyThreshold: 0.2
+  alignedAngularPenalty: 0.8
+  alignedAngularDeadZone: 0.04
+  alignedAngularMaxPenaltyThreshold: 0.13
+  alignedLateralPenalty: 0.8
+  alignedLateralDeadZone: 0.1
+  alignedLateralMaxPenaltyThreshold: 0.25
   enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  stableAlignedTime: 1.5
-  smoothingAlpha: 0.4
+  stableAlignedTime: 1.2
+  maxDeltaLateralSpeed: 0.02
+  maxDeltaOmegaDeg: 8
+  outputDecayFactor: 1
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: 0, y: 0.15, z: 4.5}
@@ -540,7 +535,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7e4ad112514b76e4392e06856c20feb8, type: 3}
   m_Name: 
@@ -556,7 +551,7 @@ MonoBehaviour:
   - {fileID: 1848363869}
   - {fileID: 1550834400}
   - {fileID: 1240964160}
-  showDebugInfo: 1
+  showDebugInfo: 0
   showOutputCurves: 0
   displayPosition: {x: 10, y: 10}
   displaySize: {x: 480, y: 550}

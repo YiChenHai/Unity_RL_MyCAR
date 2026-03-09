@@ -36,14 +36,35 @@ public class MyCar_StateDisplay : MonoBehaviour
     [Tooltip("奖励曲线显示大小")]
     public Vector2 rewardCurveSize = new Vector2(400, 200);
 
-    private static Texture2D _bgTexture; // 静态背景纹理，避免每帧创建
-    private static Texture2D _cyanTexture; // 青色图例颜色块
-    private static Texture2D _magentaTexture; // 洋红色图例颜色块
+    private static Texture2D _bgTexture;
+    private static Texture2D _cyanTexture;
+    private static Texture2D _magentaTexture;
+    private static Material _glLineMaterial;
     
-    // 曲线数据缓冲区
     private float[] _lateralSpeedHistory;
     private float[] _angularSpeedHistory;
     private int _historyIndex = 0;
+
+    // 缓存 GUIStyle，避免每帧 new
+    private GUIStyle _greenLabelStyle;
+    private GUIStyle _diffStyle;
+    private GUIStyle _alignmentStyle;
+    private GUIStyle _detailStyle;
+    private GUIStyle _curveLabelStyle;
+    private GUIStyle _scaleStyle;
+    private GUIStyle _legendStyle;
+    private GUIStyle _rewardTitleStyle;
+    private GUIStyle _rewardLabelStyle;
+    private GUIStyle _rewardTotalStyle;
+    private GUIStyle _rangeStyle;
+    private GUIStyle _gridLabelStyle;
+    private GUIStyle _errorStyle;
+    private bool _stylesInitialized = false;
+
+    // 缓存临时数组
+    private float[] _sensorValues = new float[6];
+    private static readonly string[] WheelNames = { "FL", "RL", "RR", "FR" };
+    private static readonly string[] SensorLabels = { "前左", "前中", "前右", "后左", "后中", "后右" };
 
     void Start()
     {
@@ -76,20 +97,89 @@ public class MyCar_StateDisplay : MonoBehaviour
         }
     }
 
+    void InitStyles()
+    {
+        if (_stylesInitialized) return;
+        _stylesInitialized = true;
+
+        _errorStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.red } };
+        _greenLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            normal = { textColor = Color.green },
+            fontSize = 12,
+            fontStyle = FontStyle.Bold
+        };
+        _diffStyle = new GUIStyle(GUI.skin.label)
+        {
+            normal = { textColor = Color.yellow },
+            fontSize = 12,
+            fontStyle = FontStyle.Bold
+        };
+        _alignmentStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold
+        };
+        _detailStyle = new GUIStyle(GUI.skin.label) { fontSize = 11 };
+        _curveLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white }
+        };
+        _scaleStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray },
+            alignment = TextAnchor.MiddleRight
+        };
+        _legendStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white },
+            fontStyle = FontStyle.Bold
+        };
+        _rewardTitleStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            fontStyle = FontStyle.Bold
+        };
+        _rewardLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11,
+            normal = { textColor = Color.white }
+        };
+        _rewardTotalStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            normal = { textColor = Color.cyan }
+        };
+        _rangeStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray }
+        };
+        _gridLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 10,
+            normal = { textColor = Color.gray },
+            alignment = TextAnchor.MiddleRight
+        };
+    }
+
     void OnGUI()
     {
         if (!showDebugInfo) return;
+        InitStyles();
 
-        // 调试：检查 myCarMotion 是否为空
         if (myCarMotion == null)
         {
             GUI.Label(new Rect(displayPosition.x, displayPosition.y, 300, 50), 
                 "ERROR: myCarMotion is null! Please bind MyCar_Motion in Inspector.", 
-                new GUIStyle(GUI.skin.label) { normal = { textColor = Color.red } });
+                _errorStyle);
             return;
         }
 
-        // 绘制半透明灰度背景遮罩（只创建一次）
         if (_bgTexture == null)
         {
             _bgTexture = new Texture2D(1, 1);
@@ -134,14 +224,6 @@ public class MyCar_StateDisplay : MonoBehaviour
         // ========== 各轮子信息（绿色显示）==========
         GUILayout.Label("═══ Wheels ═══", GUILayout.Width(displaySize.x - 20));
 
-        string[] wheelNames = { "FL", "RL", "RR", "FR" };
-        GUIStyle greenLabelStyle = new GUIStyle(GUI.skin.label)
-        {
-            normal = { textColor = Color.green },
-            fontSize = 12,
-            fontStyle = FontStyle.Bold
-        };
-        
         for (int i = 0; i < 4; i++)
         {
             WheelCollider wc = (myCarMotion.wheelColliders != null && i < myCarMotion.wheelColliders.Length) 
@@ -160,8 +242,8 @@ public class MyCar_StateDisplay : MonoBehaviour
             float brakeTorque = wc != null ? wc.brakeTorque : 0f;
             float wheelRpm = wc != null ? wc.rpm : 0f;
 
-            GUILayout.Label($"{wheelNames[i]}: Speed={wheelSpeed:F2}m/s Angle={steerDeg:F1}° RPM={wheelRpm:F0} | Motor={motorTorque:F1}Nm Brake={brakeTorque:F1}Nm", 
-                greenLabelStyle, GUILayout.Width(displaySize.x - 20));
+            GUILayout.Label($"{WheelNames[i]}: Speed={wheelSpeed:F2}m/s Angle={steerDeg:F1}° RPM={wheelRpm:F0} | Motor={motorTorque:F1}Nm Brake={brakeTorque:F1}Nm", 
+                _greenLabelStyle, GUILayout.Width(displaySize.x - 20));
         }
 
         GUILayout.Space(10);
@@ -185,38 +267,27 @@ public class MyCar_StateDisplay : MonoBehaviour
         
         if (tape != null && sensors != null && sensors.Length == 6)
         {
-            float[] sensorValues = new float[6];
-            string[] sensorLabels = { "前左", "前中", "前右", "后左", "后中", "后右" };
-            
-            // 读取传感器数据
             for (int i = 0; i < 6; i++)
             {
+                _sensorValues[i] = 0f;
                 if (sensors[i] != null)
                 {
                     Vector3 mag = tape.GetMagneticField(sensors[i].position);
-                    sensorValues[i] = mag.magnitude;
+                    _sensorValues[i] = mag.magnitude;
                 }
             }
             
-            // 显示传感器读数（两行显示）
-            GUILayout.Label($"{sensorLabels[0]}={sensorValues[0]:F2} | {sensorLabels[1]}={sensorValues[1]:F2} | {sensorLabels[2]}={sensorValues[2]:F2}", 
+            GUILayout.Label($"{SensorLabels[0]}={_sensorValues[0]:F2} | {SensorLabels[1]}={_sensorValues[1]:F2} | {SensorLabels[2]}={_sensorValues[2]:F2}", 
                 GUILayout.Width(displaySize.x - 20));
-            GUILayout.Label($"{sensorLabels[3]}={sensorValues[3]:F2} | {sensorLabels[4]}={sensorValues[4]:F2} | {sensorLabels[5]}={sensorValues[5]:F2}", 
+            GUILayout.Label($"{SensorLabels[3]}={_sensorValues[3]:F2} | {SensorLabels[4]}={_sensorValues[4]:F2} | {SensorLabels[5]}={_sensorValues[5]:F2}", 
                 GUILayout.Width(displaySize.x - 20));
             
             // 计算并显示左右差值
-            float frontDiff = sensorValues[0] - sensorValues[2];  // 前左 - 前右
-            float rearDiff = sensorValues[3] - sensorValues[5];   // 后左 - 后右
-            
-            GUIStyle diffStyle = new GUIStyle(GUI.skin.label)
-            {
-                normal = { textColor = Color.yellow },
-                fontSize = 12,
-                fontStyle = FontStyle.Bold
-            };
+            float frontDiff = _sensorValues[0] - _sensorValues[2];
+            float rearDiff = _sensorValues[3] - _sensorValues[5];
             
             GUILayout.Label($"前排差值(左-右): {frontDiff:F3} | 后排差值(左-右): {rearDiff:F3}", 
-                diffStyle, GUILayout.Width(displaySize.x - 20));
+                _diffStyle, GUILayout.Width(displaySize.x - 20));
             
             // ========== 对齐状态检测 ==========
             GUILayout.Space(5);
@@ -234,52 +305,40 @@ public class MyCar_StateDisplay : MonoBehaviour
                 float centerThreshold = myCarAgent.maxField * myCarAgent.centerThresholdPercent;
                 
                 bool leftRightAligned = (frontDiffAbs < diffThreshold) && (rearDiffAbs < diffThreshold);
-                bool centerStrong = (sensorValues[1] > centerThreshold) && (sensorValues[4] > centerThreshold);
-                
-                // 使用不同颜色显示对齐状态
-                GUIStyle alignmentStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fontSize = 14,
-                    fontStyle = FontStyle.Bold
-                };
+                bool centerStrong = (_sensorValues[1] > centerThreshold) && (_sensorValues[4] > centerThreshold);
                 
                 string alignmentStatus;
                 string stableStatus = "";
                 
                 if (isStableAligned)
                 {
-                    // 稳定对齐状态（绿色）
-                    alignmentStyle.normal.textColor = Color.green;
+                    _alignmentStyle.normal.textColor = Color.green;
                     alignmentStatus = "✓ 对齐";
                     stableStatus = " [稳定]";
                 }
                 else if (isAligned)
                 {
-                    // 对齐但未稳定（黄色）
-                    alignmentStyle.normal.textColor = Color.yellow;
+                    _alignmentStyle.normal.textColor = Color.yellow;
                     float progress = myCarAgent.AlignedTimer / myCarAgent.stableAlignedTime;
                     alignmentStatus = "⊙ 对齐中";
                     stableStatus = $" [确认中 {myCarAgent.AlignedTimer:F1}s / {myCarAgent.stableAlignedTime:F1}s ({progress*100:F0}%)]";
                 }
                 else
                 {
-                    // 未对齐（红色）
-                    alignmentStyle.normal.textColor = Color.red;
+                    _alignmentStyle.normal.textColor = Color.red;
                     alignmentStatus = "✗ 未对齐";
                     stableStatus = " [不满足对齐标准]";
                 }
                 
-                GUILayout.Label($"对齐状态: {alignmentStatus}{stableStatus}", alignmentStyle, GUILayout.Width(displaySize.x - 20));
+                GUILayout.Label($"对齐状态: {alignmentStatus}{stableStatus}", _alignmentStyle, GUILayout.Width(displaySize.x - 20));
                 
-                // 显示详细判断条件
-                GUIStyle detailStyle = new GUIStyle(GUI.skin.label) { fontSize = 11 };
-                detailStyle.normal.textColor = leftRightAligned ? Color.green : Color.gray;
+                _detailStyle.normal.textColor = leftRightAligned ? Color.green : Color.gray;
                 GUILayout.Label($"  左右对称: {(leftRightAligned ? "✓" : "✗")} (前={frontDiffAbs:F2}<{diffThreshold:F2}, 后={rearDiffAbs:F2}<{diffThreshold:F2})", 
-                    detailStyle, GUILayout.Width(displaySize.x - 20));
+                    _detailStyle, GUILayout.Width(displaySize.x - 20));
                 
-                detailStyle.normal.textColor = centerStrong ? Color.green : Color.gray;
-                GUILayout.Label($"  中心强度: {(centerStrong ? "✓" : "✗")} (前={sensorValues[1]:F2}>{centerThreshold:F2}, 后={sensorValues[4]:F2}>{centerThreshold:F2})", 
-                    detailStyle, GUILayout.Width(displaySize.x - 20));
+                _detailStyle.normal.textColor = centerStrong ? Color.green : Color.gray;
+                GUILayout.Label($"  中心强度: {(centerStrong ? "✓" : "✗")} (前={_sensorValues[1]:F2}>{centerThreshold:F2}, 后={_sensorValues[4]:F2}>{centerThreshold:F2})", 
+                    _detailStyle, GUILayout.Width(displaySize.x - 20));
             }
         }
         else
@@ -343,25 +402,15 @@ public class MyCar_StateDisplay : MonoBehaviour
         DrawCurveLineWithColor(graphRect, _lateralSpeedHistory, Color.cyan, "Lateral Vx");
         DrawCurveLineWithColor(graphRect, _angularSpeedHistory, Color.magenta, "Angular ω");
         
-        // 绘制当前值标签（在图表底部）
-        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 11,
-            normal = { textColor = Color.white }
-        };
-        
         float labelX = graphRect.x + 10;
         float labelY = graphRect.yMax + 5;
 
-        // 真实物理量（未归一化）：Vx 为 m/s，omega 为 deg/s
         float currentLateralReal = myCarMotion.vx_input;
         float currentAngularReal = myCarMotion.omega_input * Mathf.Rad2Deg;
         
         GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
-        // 第一行：归一化后的比例（-1~1），和动作输出同尺度
-        GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", labelStyle);
-        // 第二行：真实物理单位
-        GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", labelStyle);
+        GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", _curveLabelStyle);
+        GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", _curveLabelStyle);
         GUILayout.EndArea();
     }
 
@@ -388,27 +437,17 @@ public class MyCar_StateDisplay : MonoBehaviour
         DrawLine(new Vector2(graphRect.x, midBottomY), new Vector2(graphRect.xMax, midBottomY), faintGridColor);
     }
     
+    private static readonly float[] YAxisValues = { 1f, 0.5f, 0f, -0.5f, -1f };
+
     void DrawYAxisLabels(Rect graphRect)
     {
-        // Y轴刻度值
-        float[] values = { 1f, 0.5f, 0f, -0.5f, -1f };
-        
-        GUIStyle scaleStyle = new GUIStyle(GUI.skin.label)
+        foreach (float val in YAxisValues)
         {
-            fontSize = 10,
-            normal = { textColor = Color.gray },
-            alignment = TextAnchor.MiddleRight
-        };
-        
-        foreach (float val in values)
-        {
-            // 计算Y坐标：val = 1 在上面，val = -1 在下面
             float screenY = graphRect.center.y - val * (graphRect.height / 2);
             screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
             
-            // 绘制标签（在图表左侧外部）
             Rect labelRect = new Rect(graphRect.x - 40, screenY - 10, 35, 20);
-            GUI.Label(labelRect, val.ToString("F1"), scaleStyle);
+            GUI.Label(labelRect, val.ToString("F1"), _scaleStyle);
         }
     }
 
@@ -417,20 +456,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// </summary>
     void DrawCurveLegend(Rect legendRect)
     {
-        GUIStyle legendStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 11,
-            normal = { textColor = Color.white },
-            fontStyle = FontStyle.Bold
-        };
-        
-        // 绘制横向速度图例（青色）
-        Color cyanColor = Color.cyan;
-        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), cyanColor, "横向速度 (Vx)", legendStyle);
-        
-        // 绘制角速度图例（洋红色）
-        Color magentaColor = Color.magenta;
-        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), magentaColor, "角速度 (ω)", legendStyle);
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.cyan, "横向速度 (Vx)", _legendStyle);
+        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.magenta, "角速度 (ω)", _legendStyle);
     }
     
     /// <summary>
@@ -438,27 +465,17 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// </summary>
     void DrawLegendItem(Rect rect, Color color, string label, GUIStyle style)
     {
-        // 绘制颜色块（小方块）
         Rect colorRect = new Rect(rect.x, rect.y + 2, 12, 12);
         Texture2D colorTex = null;
         
-        // 使用预创建的纹理（避免每帧创建）
         if (color == Color.cyan && _cyanTexture != null)
             colorTex = _cyanTexture;
         else if (color == Color.magenta && _magentaTexture != null)
             colorTex = _magentaTexture;
-        else
-        {
-            // 如果颜色不匹配，创建临时纹理
-            colorTex = new Texture2D(1, 1);
-            colorTex.SetPixel(0, 0, color);
-            colorTex.Apply();
-        }
         
         if (colorTex != null)
             GUI.DrawTexture(colorRect, colorTex);
         
-        // 绘制文字标签
         Rect labelRect = new Rect(rect.x + 16, rect.y, rect.width - 16, rect.height);
         style.normal.textColor = color;
         GUI.Label(labelRect, label, style);
@@ -497,23 +514,31 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// <summary>
     /// 使用 GL 绘制直线（运行时用）
     /// </summary>
+    static void EnsureLineMaterial()
+    {
+        if (_glLineMaterial == null)
+        {
+            _glLineMaterial = new Material(Shader.Find("Hidden/Internal-Colored"));
+            _glLineMaterial.hideFlags = HideFlags.HideAndDontSave;
+        }
+    }
+
     void DrawLine(Vector2 start, Vector2 end, Color color)
     {
+        EnsureLineMaterial();
+
         GL.PushMatrix();
         GL.LoadOrtho();
         
-        // 将屏幕坐标转换为 GL 坐标 (0-1)
         start.x /= Screen.width;
         start.y /= Screen.height;
         end.x /= Screen.width;
         end.y /= Screen.height;
         
-        // Y 轴反向（屏幕坐标 Y 向下，GL 坐标 Y 向上）
         start.y = 1f - start.y;
         end.y = 1f - end.y;
         
-        var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
-        mat.SetPass(0);
+        _glLineMaterial.SetPass(0);
         
         GL.Begin(GL.LINES);
         GL.Color(color);
@@ -537,69 +562,25 @@ public class MyCar_StateDisplay : MonoBehaviour
         MyCarAgent.RewardComponents components = myCarAgent.CurrentRewardComponents;
         float cumulativeReward = myCarAgent.CumulativeReward;
 
-        GUIStyle titleStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 14,
-            fontStyle = FontStyle.Bold,
-            normal = { textColor = cumulativeReward >= 0 ? Color.green : Color.red }
-        };
-        GUILayout.Label($"累计奖励: {cumulativeReward:F3}", titleStyle);
+        _rewardTitleStyle.normal.textColor = cumulativeReward >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"累计奖励: {cumulativeReward:F3}", _rewardTitleStyle);
         GUILayout.Space(5);
-
-        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 11,
-            normal = { textColor = Color.white }
-        };
 
         float alignmentSpeedReward = components.alignmentReward * components.speedCoefficient;
-        Color alignmentColor = alignmentSpeedReward >= 0 ? Color.green : Color.red;
-        labelStyle.normal.textColor = alignmentColor;
+        _rewardLabelStyle.normal.textColor = alignmentSpeedReward >= 0 ? Color.green : Color.red;
         GUILayout.Label($"1. 对齐奖励×速度系数: {alignmentSpeedReward:F4} (对齐={components.alignmentReward:F3} × 速度={components.speedCoefficient:F3})", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
+            _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
         
-        labelStyle.normal.textColor = components.smoothnessReward >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"2. 平稳性奖励: {components.smoothnessReward:F4}", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        labelStyle.normal.textColor = components.turningReward >= 0 ? Color.green : Color.yellow;
-        GUILayout.Label($"3. 转弯奖励: {components.turningReward:F4}", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        labelStyle.normal.textColor = components.straightOutputPenalty >= 0 ? Color.green : Color.red;
-        // 显示惩罚百分比，根据百分比设置颜色（0%绿色，100%红色）
-        Color penaltyPercentColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
-        labelStyle.normal.textColor = penaltyPercentColor;
-        
-        // 计算最大惩罚值（用于显示）
-        // 当输出达到最大值阈值时，比例=1，惩罚值=Penalty×1=Penalty
-        float maxAngularPenalty = myCarAgent.alignedAngularPenalty;
-        float maxLateralPenalty = myCarAgent.alignedLateralPenalty;
-        float maxTotalPenalty = maxAngularPenalty + maxLateralPenalty;
-        
-        GUILayout.Label($"4. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚百分比: {components.straightOutputPenaltyPercent:F1}%)", 
-            labelStyle, GUILayout.Width(rewardRect.width - 20));
-        
-        // 显示最大惩罚值信息（小字体，灰色）
-        GUIStyle infoStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 10,
-            normal = { textColor = Color.gray }
-        };
-        GUILayout.Label($"   最大惩罚值: 角速度={maxAngularPenalty:F4}, 横向速度={maxLateralPenalty:F4}, 合计={maxTotalPenalty:F4}", 
-            infoStyle, GUILayout.Width(rewardRect.width - 20));
+        _rewardLabelStyle.normal.textColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
+        GUILayout.Label($"2. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚: {components.straightOutputPenaltyPercent:F1}%)", 
+            _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.Space(5);
         
-        GUIStyle totalStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 12,
-            fontStyle = FontStyle.Bold,
-            normal = { textColor = Color.cyan }
-        };
-        GUILayout.Label($"总奖励(×dt前): {components.totalReward:F4}", totalStyle, GUILayout.Width(rewardRect.width - 20));
-        totalStyle.normal.textColor = components.rewardThisFrame >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"本帧奖励(×dt后): {components.rewardThisFrame:F4}", totalStyle, GUILayout.Width(rewardRect.width - 20));
+        _rewardTotalStyle.normal.textColor = Color.cyan;
+        GUILayout.Label($"总奖励(×dt前): {components.totalReward:F4}", _rewardTotalStyle, GUILayout.Width(rewardRect.width - 20));
+        _rewardTotalStyle.normal.textColor = components.rewardThisFrame >= 0 ? Color.green : Color.red;
+        GUILayout.Label($"本帧奖励(×dt后): {components.rewardThisFrame:F4}", _rewardTotalStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.EndArea();
     }
@@ -653,14 +634,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 绘制奖励曲线
         DrawRewardCurveLine(innerRect, rewardHistory, historyLength, historyIndex, minReward, maxReward);
         
-        // 显示Y轴范围
-        GUIStyle rangeStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 10,
-            normal = { textColor = Color.gray }
-        };
         GUI.Label(new Rect(innerRect.x, innerRect.yMax + 5, innerRect.width, 20), 
-            $"Range: [{minReward:F2}, {maxReward:F2}]", rangeStyle);
+            $"Range: [{minReward:F2}, {maxReward:F2}]", _rangeStyle);
     }
     
     void DrawRewardGrid(Rect graphRect, float minVal, float maxVal)
@@ -671,29 +646,19 @@ public class MyCar_StateDisplay : MonoBehaviour
         zeroY = Mathf.Clamp(zeroY, graphRect.y, graphRect.yMax);
         DrawLine(new Vector2(graphRect.x, zeroY), new Vector2(graphRect.xMax, zeroY), Color.gray);
         
-        // 绘制Y轴标签
         float[] labelValues = { maxVal, (maxVal + minVal) / 2f, minVal };
-        GUIStyle labelStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 10,
-            normal = { textColor = Color.gray },
-            alignment = TextAnchor.MiddleRight
-        };
-        
         foreach (float val in labelValues)
         {
             float screenY = Mathf.Lerp(graphRect.yMax, graphRect.y, (val - minVal) / (maxVal - minVal));
             screenY = Mathf.Clamp(screenY, graphRect.y, graphRect.yMax);
             Rect labelRect = new Rect(graphRect.x - 50, screenY - 10, 45, 20);
-            GUI.Label(labelRect, val.ToString("F2"), labelStyle);
+            GUI.Label(labelRect, val.ToString("F2"), _gridLabelStyle);
         }
     }
     
     void DrawRewardCurveLine(Rect graphRect, float[] data, int length, int startIndex, float minVal, float maxVal)
     {
         if (data == null || length < 2) return;
-        
-        Color rewardColor = Color.yellow;
         
         for (int i = 0; i < length - 1; i++)
         {
@@ -720,7 +685,8 @@ public class MyCar_StateDisplay : MonoBehaviour
 
     private void OnDestroy()
     {
-        // 清理静态资源
+        _stylesInitialized = false;
+
         if (_bgTexture != null)
         {
             Destroy(_bgTexture);
@@ -735,6 +701,11 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             Destroy(_magentaTexture);
             _magentaTexture = null;
+        }
+        if (_glLineMaterial != null)
+        {
+            Destroy(_glLineMaterial);
+            _glLineMaterial = null;
         }
     }
 }
