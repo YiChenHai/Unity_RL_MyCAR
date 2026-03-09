@@ -434,7 +434,7 @@ MonoBehaviour:
   m_Model: {fileID: 5022602860645237092, guid: 8ae1ae7db051e764ebe14918239cc24c, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Test_251231
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_Mohu_0308
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
