@@ -144,6 +144,7 @@ public class MyCarAgent : Agent
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
     
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
+    private int sequentialSpawnIndex = 0;       // 顺序出生点索引（数据采集模式使用）
     
     [Header("Incremental Output")]
     [Tooltip("每步最大横向速度变化量 (m/s)，决定从零到满量程的响应速度")]
@@ -273,15 +274,25 @@ public class MyCarAgent : Agent
             InitializeDerailmentLogFile();
         }
         
-        // ========== 从出生点数组中随机选择 ==========
+        // ========== 选择出生点 ==========
         int spawnIndex = 0;
         if (spawnPositions != null && spawnPositions.Length > 0)
         {
-            if (spawnRng == null)
+            if (enableDataCollection)
             {
-                spawnRng = new System.Random(System.Environment.TickCount ^ GetInstanceID());
+                // 数据采集模式：按顺序依次选择出生点（0→1→2→...→0→1→...循环）
+                spawnIndex = sequentialSpawnIndex % spawnPositions.Length;
+                sequentialSpawnIndex++;
             }
-            spawnIndex = spawnRng.Next(0, spawnPositions.Length);
+            else
+            {
+                // 训练模式：随机选择出生点
+                if (spawnRng == null)
+                {
+                    spawnRng = new System.Random(System.Environment.TickCount ^ GetInstanceID());
+                }
+                spawnIndex = spawnRng.Next(0, spawnPositions.Length);
+            }
         }
         if (enableDebugLog)
         {

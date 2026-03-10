@@ -119,6 +119,23 @@ class TriangularMF:
     
     def evaluate(self, x):
         """计算隶属度 μ(x)"""
+        # 左肩MF (a==b): x<=b 时 μ=1（梯形左端）
+        if self.a >= self.b - 1e-10:
+            if x <= self.b:
+                return 1.0
+            elif x >= self.c:
+                return 0.0
+            else:
+                return (self.c - x) / max(1e-10, self.c - self.b)
+        # 右肩MF (b==c): x>=b 时 μ=1（梯形右端）
+        if self.b >= self.c - 1e-10:
+            if x >= self.b:
+                return 1.0
+            elif x <= self.a:
+                return 0.0
+            else:
+                return (x - self.a) / max(1e-10, self.b - self.a)
+        # 常规三角形MF
         if x <= self.a or x >= self.c:
             return 0.0
         elif x <= self.b:
@@ -128,6 +145,28 @@ class TriangularMF:
     
     def __repr__(self):
         return f"TriMF('{self.name}', a={self.a:.4f}, b={self.b:.4f}, c={self.c:.4f})"
+
+
+class GaussianMF:
+    """高斯隶属函数 μ(x) = exp(-(x-c)²/(2σ²))
+    
+    相比三角形MF：
+      - 无硬截断（在整个定义域上都有非零隶属度）
+      - 更平滑的过渡
+      - 与聚类算法天然配合（聚类产生的分布本身近似高斯）
+    """
+    
+    def __init__(self, name, center, sigma):
+        self.name = name
+        self.center = center
+        self.sigma = max(sigma, 1e-6)
+    
+    def evaluate(self, x):
+        """计算隶属度 μ(x) = exp(-(x-c)²/(2σ²))"""
+        return float(np.exp(-((x - self.center) ** 2) / (2.0 * self.sigma ** 2)))
+    
+    def __repr__(self):
+        return f"GaussMF('{self.name}', c={self.center:.4f}, σ={self.sigma:.4f})"
 
 
 class FuzzyVariable:
@@ -179,6 +218,142 @@ class FuzzyRule:
 
 
 # ============================================================================
+# 减法聚类算法 (Chiu, 1994)
+# ============================================================================
+
+def subtractive_clustering(data, ra=0.5, accept_ratio=0.5, reject_ratio=0.15,
+                           max_clusters=500, verbose=True):
+    """
+    减法聚类算法 —— 自动确定聚类数量和中心位置
+    
+    算法原理:
+      1. 对每个数据点，计算周围的数据密度（高斯核函数）
+      2. 选取密度最高的点作为第一个聚类中心
+      3. 抑制该中心附近的密度（减去高斯衰减量）
+      4. 重复2-3步，直到剩余密度低于阈值
+    
+    参数:
+      data: (N, D) 归一化到[0,1]的数据矩阵
+      ra: 聚类半径 (0.2~0.8)，越小→越多聚类→越多规则
+           ra=0.3 → 精细划分，ra=0.5 → 中等，ra=0.7 → 粗略
+      accept_ratio: 密度接受比率（相对于第一个聚类中心的密度）
+      reject_ratio: 密度拒绝比率（低于此比率则停止）
+      max_clusters: 最大聚类数（安全上限）
+    
+    返回:
+      centers: (K, D) 聚类中心坐标
+      sigmas: (K, D) 各维度的高斯宽度
+    
+    参考文献:
+      Chiu, S.L. (1994). "Fuzzy Model Identification Based on Cluster Estimation."
+      Journal of Intelligent and Fuzzy Systems, 2(3), 267-278.
+    """
+    n, d = data.shape
+    alpha = 4.0 / (ra ** 2)
+    rb = 1.5 * ra
+    beta = 4.0 / (rb ** 2)
+    
+    # ===== Step 1: 计算每个点的初始密度 =====
+    # D_i = Σ_j exp(-α * ||x_i - x_j||²)
+    # 向量化分块计算，防止大数据集内存溢出
+    chunk_size = 2000
+    densities = np.zeros(n)
+    
+    for i in range(0, n, chunk_size):
+        end_i = min(i + chunk_size, n)
+        chunk = data[i:end_i]  # (chunk_size, d)
+        # ||a - b||² = ||a||² + ||b||² - 2<a,b>
+        a_sq = np.sum(chunk ** 2, axis=1, keepdims=True)   # (chunk, 1)
+        b_sq = np.sum(data ** 2, axis=1, keepdims=True).T  # (1, n)
+        dist2 = a_sq + b_sq - 2.0 * chunk @ data.T         # (chunk, n)
+        dist2 = np.maximum(dist2, 0.0)  # 数值稳定性
+        densities[i:end_i] = np.sum(np.exp(-alpha * dist2), axis=1)
+    
+    if verbose:
+        print(f"  初始密度范围: [{densities.min():.2f}, {densities.max():.2f}]")
+    
+    d1 = densities.max()  # 第一个聚类中心的密度（作为参考基准）
+    
+    if d1 < 1e-10:
+        # 数据量太少或完全相同，返回均值作为唯一聚类
+        return (np.array([np.mean(data, axis=0)]),
+                np.array([np.std(data, axis=0) + 0.05]))
+    
+    # ===== Step 2-4: 迭代提取聚类中心 =====
+    centers = []
+    
+    while len(centers) < max_clusters:
+        idx = np.argmax(densities)
+        dk = densities[idx]
+        
+        if dk <= 0:
+            break
+        
+        ratio = dk / d1
+        
+        if len(centers) == 0 or ratio > accept_ratio:
+            # 密度足够高，直接接受
+            centers.append(data[idx].copy())
+        elif ratio < reject_ratio:
+            # 密度太低，停止
+            break
+        else:
+            # 灰色地带：检查与已有中心的距离
+            dists = [np.sqrt(np.sum((data[idx] - c) ** 2)) for c in centers]
+            min_dist = min(dists)
+            if min_dist / ra + ratio >= 1.0:
+                # 距离足够远，接受（即使密度不那么高）
+                centers.append(data[idx].copy())
+            else:
+                # 太近了，拒绝这个点，尝试下一个
+                densities[idx] = 0
+                continue
+        
+        # Step 3: 抑制该中心附近的密度
+        dist2_to_center = np.sum((data - data[idx]) ** 2, axis=1)
+        densities -= dk * np.exp(-beta * dist2_to_center)
+        densities = np.maximum(densities, 0.0)
+    
+    centers = np.array(centers)
+    k = len(centers)
+    
+    if verbose:
+        print(f"  聚类完成: 发现 {k} 个聚类中心")
+    
+    # ===== Step 5: 计算各聚类的宽度(sigma) =====
+    # 将数据点分配到最近的聚类，计算各维度标准差
+    sigmas = np.zeros_like(centers)
+    
+    if k > 1:
+        # 分配数据点到最近聚类
+        assignments = np.zeros(n, dtype=int)
+        for i in range(0, n, chunk_size):
+            end_i = min(i + chunk_size, n)
+            chunk = data[i:end_i]
+            dists = np.zeros((end_i - i, k))
+            for c_idx in range(k):
+                dists[:, c_idx] = np.sum((chunk - centers[c_idx]) ** 2, axis=1)
+            assignments[i:end_i] = np.argmin(dists, axis=1)
+        
+        for c_idx in range(k):
+            mask = assignments == c_idx
+            count = np.sum(mask)
+            if count > 1:
+                sigmas[c_idx] = np.std(data[mask], axis=0)
+            else:
+                sigmas[c_idx] = ra / np.sqrt(8)
+        
+        # 最小sigma保证（防止MF过窄）
+        min_sigma = ra / (2.0 * np.sqrt(2))
+        sigmas = np.maximum(sigmas, min_sigma)
+    else:
+        sigmas = np.std(data, axis=0, keepdims=True)
+        sigmas = np.maximum(sigmas, 0.1)
+    
+    return centers, sigmas
+
+
+# ============================================================================
 # 模糊规则库生成器
 # ============================================================================
 
@@ -194,6 +369,10 @@ class FuzzyRuleGenerator:
         self.output_data = None  # numpy array
         self.input_col_names = []
         self.output_col_names = []
+        self._clustering_mode = False  # 是否使用聚类模式
+        self._cluster_centers = None   # 聚类中心 (K, n_inputs)
+        self._cluster_sigmas = None    # 聚类宽度 (K, n_inputs)
+        self._cluster_outputs = None   # 聚类输出 (K, n_outputs)
     
     # ===== 数据加载 =====
     
@@ -218,7 +397,7 @@ class FuzzyRuleGenerator:
         # 检查列数是否足够
         max_col = max(max(input_indices), max(output_indices))
         if df.shape[1] <= max_col:
-            print(f"\n  ❌ 错误: CSV只有 {df.shape[1]} 列，但需要至少 {max_col+1} 列")
+            print(f"\n  [ERROR] CSV only has {df.shape[1]} columns, need at least {max_col+1}")
             print(f"  请确认CSV是由修改后的 MyCar_Agent.cs 生成的（含 output_vx_norm 和 output_omega_norm 列）")
             print(f"  如果是旧格式CSV（11列），output_vx_norm 和 output_omega_norm 列不存在。")
             sys.exit(1)
@@ -382,6 +561,292 @@ class FuzzyRuleGenerator:
             fvar.add_mf(TriangularMF(set_names[i], a, b, r))
         
         return fvar
+    
+    # ===== 聚类法模糊系统辨识 =====
+    
+    def generate_from_clustering(self, ra=None, max_cluster_samples=5000,
+                                max_rules=50):
+        """
+        基于减法聚类的全自动模糊系统辨识
+        
+        核心思路（前件聚类法）：
+          1. 仅在输入空间中进行减法聚类，找到不同的"操作区域"
+          2. 每个聚类 = 一条模糊规则
+          3. 聚类中心投影 -> 高斯MF的中心
+          4. 聚类内数据散布 -> 高斯MF的宽度(sigma)
+          5. 聚类内数据的加权平均输出 -> 规则后件值
+        
+        与 Wang-Mendel 方法的区别：
+          - Wang-Mendel: 先独立定义MF -> 再组合提取规则（MF和规则分开）
+          - 聚类法: 聚类同时确定MF和规则（一体化，全数据驱动）
+        
+        所有参数均由数据自动确定：
+          * 规则数量 = 聚类数量（自动确定，不超过max_rules）
+          * MF形状 = 高斯（由聚类产生的自然分布形状）
+          * MF参数 = 聚类中心和宽度（100%来自数据）
+          * 规则后件 = 聚类内数据的加权平均输出
+        
+        参数:
+          ra: 聚类半径（在标准化空间中），None=自动搜索最佳ra
+          max_cluster_samples: 聚类使用的最大数据量
+          max_rules: 规则数上限（自动搜索ra使规则数不超过此值，但尽量多）
+        """
+        print(f"\n{'='*60}")
+        print(f"[2-3/5] Clustering-based Fuzzy System Identification")
+        print(f"{'='*60}")
+        
+        n_in = self.input_data.shape[1]
+        n_out = self.output_data.shape[1]
+        n_total = len(self.input_data)
+        
+        # ===== 分层子采样（确保输入空间全范围覆盖）=====
+        # 普通随机采样会导致稀有状态（如大偏差）被淹没
+        # 分层采样确保输入空间各区域有均匀代表
+        if n_total > max_cluster_samples:
+            input_sub, output_sub = self._stratified_subsample(
+                self.input_data, self.output_data,
+                n_samples=max_cluster_samples
+            )
+            print(f"  Stratified subsample: {n_total} -> {len(input_sub)} "
+                  f"(balanced across input range)")
+        else:
+            input_sub = self.input_data.copy()
+            output_sub = self.output_data.copy()
+        
+        # ===== Z-score标准化（仅对输入空间）=====
+        input_mean = input_sub.mean(axis=0)
+        input_std = input_sub.std(axis=0)
+        input_std[input_std < 1e-10] = 1.0
+        
+        input_norm = (input_sub - input_mean) / input_std
+        
+        print(f"  Normalization: Z-score (mean=0, std=1)")
+        print(f"  Input space dimension: {n_in}")
+        
+        # ===== 自动搜索最佳ra =====
+        if ra is None or ra <= 0:
+            ra = self._auto_tune_ra(input_norm, max_rules)
+        
+        print(f"  Effective ra: {ra:.4f}")
+        
+        # ===== 执行减法聚类（仅在输入空间中）=====
+        print(f"  Running subtractive clustering in {n_in}D input space...")
+        centers_norm, sigmas_norm = subtractive_clustering(
+            input_norm, ra=ra, max_clusters=max_rules, verbose=True
+        )
+        n_clusters = len(centers_norm)
+        
+        if n_clusters == 0:
+            print("  [WARN] No clusters found, using global mean")
+            centers_norm = np.array([np.mean(input_norm, axis=0)])
+            sigmas_norm = np.array([np.std(input_norm, axis=0)])
+            n_clusters = 1
+        
+        # ===== 反标准化到原始输入空间 =====
+        input_centers = centers_norm * input_std + input_mean   # (K, n_inputs)
+        input_sigmas = sigmas_norm * input_std                   # (K, n_inputs)
+        
+        # ===== 强制最小sigma =====
+        # 确保每个MF至少覆盖变量范围的一定比例
+        # 防止过窄的MF导致推理时大量输入"漏掉"
+        for i, var_name in enumerate(self.input_col_names):
+            lo, hi = VARIABLE_RANGES[var_name]
+            min_sigma = (hi - lo) / (n_clusters * 2.5)  # 至少覆盖范围的1/(2.5K)
+            input_sigmas[:, i] = np.maximum(input_sigmas[:, i], min_sigma)
+        
+        # ===== 计算每条规则的后件值 =====
+        # 将每个数据点按模糊隶属度分配到各聚类，加权平均得到输出
+        print(f"\n  Computing consequent values for {n_clusters} clusters...")
+        
+        output_values = np.zeros((n_clusters, n_out))
+        cluster_supports = np.zeros(n_clusters, dtype=int)
+        
+        # 计算每个数据点对每个聚类的隶属度
+        # μ_k(x) = exp(-||x - c_k||² / (2 * ra²))  (在标准化空间中)
+        membership = np.zeros((len(input_sub), n_clusters))
+        for k in range(n_clusters):
+            diff = input_norm - centers_norm[k]
+            dist2 = np.sum(diff ** 2, axis=1)
+            membership[:, k] = np.exp(-dist2 / (2.0 * (ra * 0.5) ** 2))
+        
+        # 硬分配用于计算支持度
+        hard_assignment = np.argmax(membership, axis=1)
+        
+        for k in range(n_clusters):
+            mask = hard_assignment == k
+            cluster_supports[k] = int(np.sum(mask))
+            
+            # 加权平均输出（使用隶属度作为权重）
+            w = membership[:, k]
+            w_sum = w.sum()
+            if w_sum > 1e-10:
+                for j in range(n_out):
+                    output_values[k, j] = np.average(output_sub[:, j], weights=w)
+            else:
+                output_values[k] = output_sub.mean(axis=0)
+        
+        print(f"\n  Clustering result: {n_clusters} clusters -> {n_clusters} rules")
+        
+        # ===== 存储聚类模式标记 =====
+        self._clustering_mode = True
+        self._cluster_centers = input_centers
+        self._cluster_sigmas = input_sigmas
+        self._cluster_outputs = output_values
+        
+        # ===== 创建高斯隶属函数 =====
+        self.input_vars = {}
+        
+        for i, var_name in enumerate(self.input_col_names):
+            var_range = VARIABLE_RANGES[var_name]
+            fvar = FuzzyVariable(var_name, var_range)
+            
+            for c in range(n_clusters):
+                mf = GaussianMF(
+                    name=f"C{c+1}",
+                    center=float(input_centers[c, i]),
+                    sigma=float(input_sigmas[c, i])
+                )
+                fvar.add_mf(mf)
+            
+            self.input_vars[var_name] = fvar
+            print(f"\n  {var_name} ({n_clusters} Gaussian MFs):")
+            for mf in fvar.mfs:
+                print(f"    {mf}")
+        
+        # ===== 创建规则（每个聚类 = 一条规则）=====
+        self.rules = []
+        
+        for c in range(n_clusters):
+            antecedent = {}
+            for var_name in self.input_col_names:
+                antecedent[var_name] = f"C{c+1}"
+            
+            consequent = {}
+            for j, out_name in enumerate(self.output_col_names):
+                consequent[out_name] = float(output_values[c, j])
+            
+            rule = FuzzyRule(antecedent, consequent, strength=1.0,
+                           support_count=int(cluster_supports[c]))
+            self.rules.append(rule)
+        
+        print(f"\n  Rule summary:")
+        print(f"    Total rules: {n_clusters}")
+        for i, rule in enumerate(self.rules):
+            out_str = ", ".join(f"{k}={v:.4f}" for k, v in rule.consequent_values.items())
+            print(f"    Rule {i+1}: support={rule.support_count}, output=[{out_str}]")
+        
+        return self.rules
+    
+    def _stratified_subsample(self, input_data, output_data, n_samples=5000,
+                               n_bins=20):
+        """
+        分层子采样：确保输入空间各区域有均匀代表
+        
+        普通随机采样的问题：
+          - 数据大部分集中在"正常工况"（车身居中，偏差≈0）
+          - 采样后极端工况（大偏差）几乎消失
+          - 聚类只能找到正常工况附近的微小差异
+        
+        分层采样的解决方案：
+          - 将主要偏差维度（front_lr_diff）分成等宽bins
+          - 从每个bin中等量采样
+          - 极端工况（少数据bins）被过采样，正常工况（多数据bins）被欠采样
+          - 结果：输入空间全范围均匀覆盖
+        """
+        n = len(input_data)
+        
+        # 使用 front_lr_diff (第0列) 和 rear_lr_diff (第1列) 做2D分层
+        x1 = input_data[:, 0]  # front_lr_diff
+        x2 = input_data[:, 1]  # rear_lr_diff
+        
+        # 创建2D网格bins
+        edges1 = np.linspace(x1.min() - 1e-6, x1.max() + 1e-6, n_bins + 1)
+        edges2 = np.linspace(x2.min() - 1e-6, x2.max() + 1e-6, n_bins + 1)
+        
+        bin1 = np.digitize(x1, edges1) - 1
+        bin2 = np.digitize(x2, edges2) - 1
+        bin1 = np.clip(bin1, 0, n_bins - 1)
+        bin2 = np.clip(bin2, 0, n_bins - 1)
+        
+        # 组合bin索引
+        combined_bin = bin1 * n_bins + bin2
+        unique_bins = np.unique(combined_bin)
+        
+        # 从有数据的bins中等量采样
+        samples_per_bin = max(1, n_samples // len(unique_bins))
+        selected = []
+        
+        for b in unique_bins:
+            mask_indices = np.where(combined_bin == b)[0]
+            if len(mask_indices) >= samples_per_bin:
+                sel = np.random.choice(mask_indices, samples_per_bin, replace=False)
+            else:
+                # 数据不够：有放回过采样
+                sel = np.random.choice(mask_indices, samples_per_bin, replace=True)
+            selected.extend(sel)
+        
+        selected = np.array(selected)
+        np.random.shuffle(selected)
+        
+        # 截断到目标数量
+        if len(selected) > n_samples:
+            selected = selected[:n_samples]
+        
+        print(f"    Stratified bins: {len(unique_bins)} non-empty out of {n_bins*n_bins}")
+        print(f"    Samples per bin: ~{samples_per_bin}")
+        
+        return input_data[selected], output_data[selected]
+    
+    def _auto_tune_ra(self, data_norm, max_rules=50, max_iter=20):
+        """
+        自动搜索最佳聚类半径ra
+        
+        策略：在规则数不超过 max_rules（上限）的前提下，尽量多生成规则
+        （规则越多 → R² 越高）
+        
+        使用二分搜索：ra越小->聚类越多，ra越大->聚类越少
+        目标：找到最小的 ra 使得 n_clusters <= max_rules
+        """
+        print(f"\n  Auto-tuning ra for max {max_rules} rules (maximize within limit)...")
+        
+        # 用一个较小的子集做快速搜索（避免每次都跑完整聚类）
+        n = len(data_norm)
+        if n > 2000:
+            search_idx = np.random.choice(n, 2000, replace=False)
+            search_data = data_norm[search_idx]
+        else:
+            search_data = data_norm
+        
+        ra_lo, ra_hi = 0.02, 2.0
+        best_ra = 0.5       # 保底值（较大ra，规则较少）
+        best_n_clusters = 1  # 对应的规则数
+        
+        for iteration in range(max_iter):
+            ra_mid = (ra_lo + ra_hi) / 2.0
+            centers, _ = subtractive_clustering(
+                search_data, ra=ra_mid, max_clusters=max_rules, verbose=False
+            )
+            n_clusters = len(centers)
+            
+            print(f"    iter {iteration+1}: ra={ra_mid:.4f} -> {n_clusters} clusters "
+                  f"(limit={max_rules})")
+            
+            if n_clusters <= max_rules:
+                # 没超上限 → 记录为候选，并尝试更小的ra以获得更多规则
+                if n_clusters > best_n_clusters:
+                    best_n_clusters = n_clusters
+                    best_ra = ra_mid
+                ra_hi = ra_mid  # 缩小ra → 更多规则
+            else:
+                # 超过上限 → 需要增大ra
+                ra_lo = ra_mid
+            
+            # 收敛条件
+            if ra_hi - ra_lo < 0.003:
+                break
+        
+        print(f"  Auto-tuned ra = {best_ra:.4f} (expected ~{best_n_clusters} rules, limit={max_rules})")
+        return best_ra
     
     # ===== Wang-Mendel 规则提取 =====
     
@@ -563,10 +1028,10 @@ class FuzzyRuleGenerator:
             print(f"\n    {name}:")
             print(f"      MSE  = {mse:.6f}")
             print(f"      MAE  = {mae:.6f}")
-            print(f"      R²   = {r2:.4f}")
+            print(f"      R2   = {r2:.4f}")
             
             if r2 < 0.5:
-                print(f"      ⚠️ R²偏低，建议增加模糊集数量或使用 data-driven 方法")
+                print(f"      Warning: R2 is low, consider more fuzzy sets or data-driven/clustering method")
         
         return predictions
     
@@ -587,11 +1052,189 @@ class FuzzyRuleGenerator:
         """
         导出为C#模糊控制器代码
         
-        生成的代码包含：
-          - 所有隶属函数参数（三角形MF的a,b,c）
-          - 完整规则库（前件索引 + 后件值 + 权重）
-          - 模糊推理引擎（模糊化 → 规则评估 → 去模糊化）
-          - 公开的Evaluate()接口
+        根据模式自动选择导出方式:
+          - Wang-Mendel模式: 三角形MF + 规则索引表
+          - 聚类模式: 高斯MF + 聚类中心/宽度表
+        """
+        if self._clustering_mode:
+            return self._export_csharp_clustering(output_path, class_name)
+        return self._export_csharp_wangmendel(output_path, class_name)
+    
+    def _export_csharp_clustering(self, output_path, class_name="FuzzyController"):
+        """
+        聚类模式C#代码导出（高斯隶属函数）
+        
+        生成的代码结构更简洁：
+          - Centers[K, N_INPUTS]: 每条规则在各输入维度的高斯中心
+          - Sigmas[K, N_INPUTS]:  每条规则在各输入维度的高斯宽度
+          - Outputs[K, N_OUTPUTS]: 每条规则的输出值
+          - 推理 = Σ(firing_k * output_k) / Σ(firing_k)
+        """
+        print(f"\n{'='*60}")
+        print(f"[5/5] 导出C#代码 (聚类模式/高斯MF): {output_path}")
+        print(f"{'='*60}")
+        
+        n_rules = len(self.rules)
+        n_inputs = len(self.input_col_names)
+        n_outputs = len(self.output_col_names)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        lines = []
+        lines.append(f"// 模糊控制器 - 自动生成 (聚类法 / 高斯隶属函数)")
+        lines.append(f"// 生成时间: {timestamp}")
+        lines.append(f"// 生成方法: 减法聚类 (Subtractive Clustering, Chiu 1994)")
+        lines.append(f"// 数据样本数: {len(self.input_data)}")
+        lines.append(f"// 聚类数(=规则数): {n_rules}")
+        lines.append(f"// 输入变量: {', '.join(self.input_col_names)}")
+        lines.append(f"// 输出变量: {', '.join(self.output_col_names)}")
+        lines.append(f"// 隶属函数类型: 高斯 μ(x) = exp(-(x-c)²/(2σ²))")
+        lines.append(f"//")
+        lines.append(f"// 特点: 所有参数（MF数量、中心、宽度、规则数）均由数据自动确定")
+        lines.append(f"")
+        lines.append(f"using System;")
+        lines.append(f"using UnityEngine;")
+        lines.append(f"")
+        lines.append(f"public class {class_name}")
+        lines.append(f"{{")
+        
+        # ===== 常量 =====
+        lines.append(f"    private const int N_RULES = {n_rules};")
+        lines.append(f"    private const int N_INPUTS = {n_inputs};")
+        lines.append(f"    private const int N_OUTPUTS = {n_outputs};")
+        lines.append(f"")
+        
+        # ===== 聚类中心 =====
+        lines.append(f"    // ===== 聚类中心 (高斯MF的中心 c) =====")
+        lines.append(f"    // Centers[规则索引, 输入变量索引]")
+        lines.append(f"    // 输入变量顺序: {', '.join(self.input_col_names)}")
+        lines.append(f"    private static readonly float[,] Centers = {{")
+        for r in range(n_rules):
+            vals = ", ".join(f"{self._cluster_centers[r, i]:10.6f}f" for i in range(n_inputs))
+            lines.append(f"        {{ {vals} }},  // Rule {r+1}")
+        lines.append(f"    }};")
+        lines.append(f"")
+        
+        # ===== 聚类宽度 =====
+        lines.append(f"    // ===== 聚类宽度 (高斯MF的sigma σ) =====")
+        lines.append(f"    // Sigmas[规则索引, 输入变量索引]")
+        lines.append(f"    private static readonly float[,] Sigmas = {{")
+        for r in range(n_rules):
+            vals = ", ".join(f"{self._cluster_sigmas[r, i]:10.6f}f" for i in range(n_inputs))
+            lines.append(f"        {{ {vals} }},  // Rule {r+1}")
+        lines.append(f"    }};")
+        lines.append(f"")
+        
+        # ===== 规则输出 =====
+        lines.append(f"    // ===== 规则输出值 (Takagi-Sugeno零阶) =====")
+        lines.append(f"    // Outputs[规则索引, 输出变量索引]")
+        lines.append(f"    // 输出变量顺序: {', '.join(self.output_col_names)}")
+        lines.append(f"    private static readonly float[,] Outputs = {{")
+        for r in range(n_rules):
+            vals = ", ".join(f"{self._cluster_outputs[r, j]:10.6f}f" for j in range(n_outputs))
+            lines.append(f"        {{ {vals} }},  // Rule {r+1}")
+        lines.append(f"    }};")
+        lines.append(f"")
+        
+        # ===== 推理方法 =====
+        lines.append(f"    // ===== 模糊推理接口 =====")
+        lines.append(f"    /// <summary>")
+        lines.append(f"    /// 基于聚类的模糊推理")
+        lines.append(f"    /// 每条规则的触发强度 = 各输入维度高斯隶属度的乘积")
+        lines.append(f"    /// 输出 = 加权平均 (Takagi-Sugeno零阶去模糊化)")
+        lines.append(f"    /// </summary>")
+        lines.append(f"    public static void Evaluate(")
+        lines.append(f"        float frontLRDiff, float rearLRDiff,")
+        lines.append(f"        float frontCenter, float rearCenter,")
+        lines.append(f"        out float outputVx, out float outputOmega)")
+        lines.append(f"    {{")
+        lines.append(f"        float sumWVx = 0f, sumWOmega = 0f, sumW = 0f;")
+        lines.append(f"")
+        lines.append(f"        for (int r = 0; r < N_RULES; r++)")
+        lines.append(f"        {{")
+        lines.append(f"            // 各输入维度的高斯隶属度乘积 (AND运算)")
+        lines.append(f"            float firing = GaussMF(frontLRDiff, Centers[r, 0], Sigmas[r, 0])")
+        lines.append(f"                         * GaussMF(rearLRDiff,  Centers[r, 1], Sigmas[r, 1])")
+        lines.append(f"                         * GaussMF(frontCenter, Centers[r, 2], Sigmas[r, 2])")
+        lines.append(f"                         * GaussMF(rearCenter,  Centers[r, 3], Sigmas[r, 3]);")
+        lines.append(f"")
+        lines.append(f"            if (firing > 1e-6f)")
+        lines.append(f"            {{")
+        lines.append(f"                sumWVx    += firing * Outputs[r, 0];")
+        lines.append(f"                sumWOmega += firing * Outputs[r, 1];")
+        lines.append(f"                sumW      += firing;")
+        lines.append(f"            }}")
+        lines.append(f"        }}")
+        lines.append(f"")
+        lines.append(f"        // Takagi-Sugeno零阶去模糊化: 加权平均")
+        lines.append(f"        if (sumW > 1e-6f)")
+        lines.append(f"        {{")
+        lines.append(f"            outputVx    = Mathf.Clamp(sumWVx / sumW, -1f, 1f);")
+        lines.append(f"            outputOmega = Mathf.Clamp(sumWOmega / sumW, -1f, 1f);")
+        lines.append(f"        }}")
+        lines.append(f"        else")
+        lines.append(f"        {{")
+        lines.append(f"            outputVx = 0f;")
+        lines.append(f"            outputOmega = 0f;")
+        lines.append(f"        }}")
+        lines.append(f"    }}")
+        lines.append(f"")
+        
+        # ===== 高斯隶属函数 =====
+        lines.append(f"    // ===== 高斯隶属函数 =====")
+        lines.append(f"    // μ(x) = exp(-(x-c)²/(2σ²))")
+        lines.append(f"    private static float GaussMF(float x, float center, float sigma)")
+        lines.append(f"    {{")
+        lines.append(f"        float d = x - center;")
+        lines.append(f"        return Mathf.Exp(-d * d / (2f * sigma * sigma));")
+        lines.append(f"    }}")
+        lines.append(f"")
+        
+        # ===== 便捷方法 =====
+        lines.append(f"    // ===== 便捷方法 =====")
+        lines.append(f"    /// <summary>")
+        lines.append(f"    /// 直接从6个传感器原始值计算控制输出")
+        lines.append(f"    /// </summary>")
+        lines.append(f"    public static void EvaluateFromSensors(")
+        lines.append(f"        float sensorFL, float sensorFC, float sensorFR,")
+        lines.append(f"        float sensorRL, float sensorRC, float sensorRR,")
+        lines.append(f"        float maxField,")
+        lines.append(f"        out float outputVx, out float outputOmega)")
+        lines.append(f"    {{")
+        lines.append(f"        float invMax = 1f / Mathf.Max(1e-6f, maxField);")
+        lines.append(f"        float frontLRDiff = Mathf.Clamp((sensorFL - sensorFR) * invMax, -1f, 1f);")
+        lines.append(f"        float rearLRDiff = Mathf.Clamp((sensorRL - sensorRR) * invMax, -1f, 1f);")
+        lines.append(f"        float frontCenter = Mathf.Clamp01(sensorFC * invMax);")
+        lines.append(f"        float rearCenter = Mathf.Clamp01(sensorRC * invMax);")
+        lines.append(f"        Evaluate(frontLRDiff, rearLRDiff, frontCenter, rearCenter, out outputVx, out outputOmega);")
+        lines.append(f"    }}")
+        lines.append(f"")
+        lines.append(f"    /// <summary>")
+        lines.append(f"    /// 获取控制器信息（调试用）")
+        lines.append(f"    /// </summary>")
+        lines.append(f"    public static string GetInfo()")
+        lines.append(f"    {{")
+        lines.append(f"        return $\"FuzzyController(Clustering): {{N_RULES}} rules, {{N_INPUTS}} inputs, generated {timestamp}\";")
+        lines.append(f"    }}")
+        lines.append(f"}}")
+        
+        # 写入文件
+        code = "\n".join(lines)
+        out_dir = os.path.dirname(output_path)
+        if out_dir and not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        print(f"  [OK] Generated {class_name}.cs (Clustering / Gaussian MF)")
+        print(f"     Path: {output_path}")
+        print(f"     Rules: {n_rules}")
+        print(f"     MF type: Gaussian")
+        print(f"     Lines: {len(lines)}")
+    
+    def _export_csharp_wangmendel(self, output_path, class_name="FuzzyController"):
+        """
+        Wang-Mendel模式C#代码导出（三角形隶属函数）
         """
         print(f"\n{'='*60}")
         print(f"[5/5] 导出C#代码: {output_path}")
@@ -764,9 +1407,24 @@ class FuzzyRuleGenerator:
         lines.append(f"")
         
         # ===== 三角形隶属函数 =====
-        lines.append(f"    // ===== 三角形隶属函数 =====")
+        lines.append(f"    // ===== 三角形隶属函数（含边界肩型处理）=====")
         lines.append(f"    private static float TriMF(float x, float a, float b, float c)")
         lines.append(f"    {{")
+        lines.append(f"        // 左肩MF (a≈b): x<=b 时 μ=1")
+        lines.append(f"        if (a >= b - 1e-6f)")
+        lines.append(f"        {{")
+        lines.append(f"            if (x <= b) return 1f;")
+        lines.append(f"            if (x >= c) return 0f;")
+        lines.append(f"            return (c - x) / Mathf.Max(1e-6f, c - b);")
+        lines.append(f"        }}")
+        lines.append(f"        // 右肩MF (b≈c): x>=b 时 μ=1")
+        lines.append(f"        if (b >= c - 1e-6f)")
+        lines.append(f"        {{")
+        lines.append(f"            if (x >= b) return 1f;")
+        lines.append(f"            if (x <= a) return 0f;")
+        lines.append(f"            return (x - a) / Mathf.Max(1e-6f, b - a);")
+        lines.append(f"        }}")
+        lines.append(f"        // 常规三角形MF")
         lines.append(f"        if (x <= a || x >= c) return 0f;")
         lines.append(f"        if (x <= b) return (x - a) / Mathf.Max(1e-6f, b - a);")
         lines.append(f"        return (c - x) / Mathf.Max(1e-6f, c - b);")
@@ -812,10 +1470,10 @@ class FuzzyRuleGenerator:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(code)
         
-        print(f"  ✅ 已生成 {class_name}.cs")
-        print(f"     文件路径: {output_path}")
-        print(f"     规则数: {n_rules}")
-        print(f"     代码行数: {len(lines)}")
+        print(f"  [OK] Generated {class_name}.cs (Wang-Mendel / Triangular MF)")
+        print(f"     Path: {output_path}")
+        print(f"     Rules: {n_rules}")
+        print(f"     Lines: {len(lines)}")
     
     # ===== 可视化 =====
     
@@ -827,7 +1485,7 @@ class FuzzyRuleGenerator:
             matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
             matplotlib.rcParams['axes.unicode_minus'] = False
         except ImportError:
-            print("  ⚠️ matplotlib 未安装，跳过可视化")
+            print("  [WARN] matplotlib not installed, skip visualization")
             return
         
         n_vars = len(self.input_vars)
@@ -914,17 +1572,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 基本用法
-  python generate_fuzzy_rules.py --data training_data.csv
+  # 基本用法（Wang-Mendel + 数据驱动MF）
+  python generate_fuzzy_rules.py --data training_data.csv --mf-method data-driven
 
-  # 数据驱动MF + 可视化
-  python generate_fuzzy_rules.py --data training_data.csv --mf-method data-driven --visualize
+  # ★ 全自动聚类法（推荐，规则数上限50，自动最大化R2）
+  python generate_fuzzy_rules.py --data training_data.csv --mf-method clustering
 
-  # 调整模糊集数量
-  python generate_fuzzy_rules.py --data training_data.csv --n-diff 7 --n-center 5
+  # 聚类法 + 限制规则数上限
+  python generate_fuzzy_rules.py --data training_data.csv --mf-method clustering --max-rules 30 --visualize
 
-  # 指定输出文件
-  python generate_fuzzy_rules.py --data training_data.csv --output FuzzyController.cs
+  # 传统等间距MF + 调整模糊集数量
+  python generate_fuzzy_rules.py --data training_data.csv --mf-method equal --n-diff 7 --n-center 5
         """)
     
     parser.add_argument('--data', type=str, default=DATA_FILE_PATH,
@@ -932,16 +1590,20 @@ def main():
     parser.add_argument('--output', type=str, default=OUTPUT_CS_PATH,
                        help='输出C#文件路径（留空使用默认）')
     parser.add_argument('--mf-method', type=str, default=MF_METHOD,
-                       choices=['equal', 'data-driven'],
-                       help='隶属函数生成方法')
+                       choices=['equal', 'data-driven', 'clustering'],
+                       help='隶属函数生成方法: equal(等间距), data-driven(数据驱动), clustering(全自动聚类)')
+    parser.add_argument('--ra', type=float, default=0.0,
+                       help='Clustering radius (clustering mode only): smaller->more rules. 0=auto-tune (default)')
+    parser.add_argument('--max-rules', type=int, default=50,
+                       help='Maximum number of rules (clustering mode). Algorithm maximizes rules within this limit for best R2. Default 50')
     parser.add_argument('--n-diff', type=int, default=N_DIFF_SETS,
-                       help='偏差变量模糊集数量（建议5或7）')
+                       help='偏差变量模糊集数量（建议5或7，仅equal/data-driven模式）')
     parser.add_argument('--n-center', type=int, default=N_CENTER_SETS,
-                       help='中心变量模糊集数量（建议3或5）')
+                       help='中心变量模糊集数量（建议3或5，仅equal/data-driven模式）')
     parser.add_argument('--min-support', type=int, default=MIN_RULE_SUPPORT,
-                       help='最小规则支持度')
+                       help='最小规则支持度（仅Wang-Mendel模式）')
     parser.add_argument('--min-strength', type=float, default=MIN_RULE_STRENGTH,
-                       help='最小规则强度')
+                       help='最小规则强度（仅Wang-Mendel模式）')
     parser.add_argument('--max-samples', type=int, default=None,
                        help='最大采样数（加速处理）')
     parser.add_argument('--visualize', action='store_true', default=ENABLE_VISUALIZE,
@@ -976,9 +1638,17 @@ def main():
     print(f"  数据文件: {args.data}")
     print(f"  输出文件: {args.output}")
     print(f"  MF方法: {args.mf_method}")
-    print(f"  偏差变量模糊集数: {args.n_diff}")
-    print(f"  中心变量模糊集数: {args.n_center}")
-    print(f"  可能的最大规则数: {args.n_diff**2 * args.n_center**2}")
+    
+    if args.mf_method == 'clustering':
+        if args.ra > 0:
+            print(f"  Clustering radius (ra): {args.ra}")
+        else:
+            print(f"  Clustering radius (ra): AUTO (max {args.max_rules} rules, maximize R2)")
+        print(f"  [*] Full-auto mode: MF count/shape/params/rules all data-driven")
+    else:
+        print(f"  偏差变量模糊集数: {args.n_diff}")
+        print(f"  中心变量模糊集数: {args.n_center}")
+        print(f"  可能的最大规则数: {args.n_diff**2 * args.n_center**2}")
     
     # 创建生成器
     generator = FuzzyRuleGenerator()
@@ -986,18 +1656,26 @@ def main():
     # Step 1: 加载数据
     generator.load_data(args.data, max_samples=args.max_samples)
     
-    # Step 2: 生成隶属函数
-    generator.generate_mfs(
-        method=args.mf_method,
-        n_diff=args.n_diff,
-        n_center=args.n_center
-    )
-    
-    # Step 3: 提取规则
-    rules = generator.extract_rules(
-        min_support=args.min_support,
-        min_strength=args.min_strength
-    )
+    if args.mf_method == 'clustering':
+        # ===== 聚类法流程: MF生成和规则提取一体化 =====
+        rules = generator.generate_from_clustering(
+            ra=args.ra if args.ra > 0 else None,
+            max_rules=args.max_rules
+        )
+    else:
+        # ===== Wang-Mendel流程: MF生成 → 规则提取 =====
+        # Step 2: 生成隶属函数
+        generator.generate_mfs(
+            method=args.mf_method,
+            n_diff=args.n_diff,
+            n_center=args.n_center
+        )
+        
+        # Step 3: 提取规则
+        rules = generator.extract_rules(
+            min_support=args.min_support,
+            min_strength=args.min_strength
+        )
     
     if args.print_rules:
         generator.print_rules(max_show=60)
@@ -1015,7 +1693,7 @@ def main():
         generator.visualize(save_path=vis_path)
     
     print(f"\n{'='*60}")
-    print(f"✅ 完成！")
+    print(f"[DONE]")
     print(f"{'='*60}")
     print(f"\n下一步:")
     print(f"  1. 将 {os.path.basename(args.output)} 复制到 Unity 项目的 Scripts 文件夹")
@@ -1023,6 +1701,12 @@ def main():
     print(f"     FuzzyController.Evaluate(frontLRDiff, rearLRDiff, frontCenter, rearCenter,")
     print(f"                              out float vx, out float omega);")
     print(f"  3. 将 vx * maxLateralSpeed, omega * maxOmegaRad 作为控制量输出")
+    
+    if args.mf_method == 'clustering':
+        print(f"\n  [*] Clustering info:")
+        print(f"     Generated {len(rules)} rules (limit={args.max_rules})")
+        print(f"     To allow more rules (higher R2): increase --max-rules")
+        print(f"     To reduce rules: decrease --max-rules")
 
 
 if __name__ == '__main__':

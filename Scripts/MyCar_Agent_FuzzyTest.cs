@@ -42,11 +42,6 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
     // 内部状态
     private float smoothedVx = 0f;
     private float smoothedOmega = 0f;
-    
-    // 累积状态（对应 MyCar_Agent 中的 accumulatedLateralSpeed / accumulatedAngularSpeed）
-    // 模糊控制器的输入之一：告诉控制器"我当前正在输出什么"
-    private float accumulatedLateralSpeed = 0f;
-    private float accumulatedAngularSpeed = 0f;
     private float maxOmegaRad;
     
     void Start()
@@ -81,36 +76,24 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
                      $"RL={rawSensor[3]:F3}, RC={rawSensor[4]:F3}, RR={rawSensor[5]:F3}");
         }
         
-        // ========== 步骤2：计算累积状态的归一化值 ==========
-        // 与 MyCar_Agent.cs CollectObservations 中 obs[4-5] 保持一致
-        float accVxNorm = Mathf.Clamp(accumulatedLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f);
-        float accOmegaNorm = Mathf.Clamp(accumulatedAngularSpeed / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f);
-        
-        // ========== 步骤3：模糊推理（6维输入） ==========
+        // ========== 步骤2：模糊推理 ==========
         float outputVxNorm, outputOmegaNorm;
         FuzzyController.EvaluateFromSensors(
             rawSensor[0], rawSensor[1], rawSensor[2],  // 前左, 前中, 前右
             rawSensor[3], rawSensor[4], rawSensor[5],  // 后左, 后中, 后右
             maxField,
-            accVxNorm, accOmegaNorm,                    // 累积状态（归一化）
             out outputVxNorm, out outputOmegaNorm
         );
         
-        // ========== 步骤4：更新累积状态 ==========
-        // 模糊控制器输出的是"目标归一化值"（与训练数据中 output_vx_norm 对应）
-        // 直接映射为物理量作为新的累积状态
-        accumulatedLateralSpeed = outputVxNorm * maxLateralSpeed;
-        accumulatedAngularSpeed = outputOmegaNorm * maxOmegaRad;
+        // ========== 步骤3：映射到物理量 ==========
+        float rawVx = outputVxNorm * maxLateralSpeed;
+        float rawOmega = outputOmegaNorm * maxOmegaRad;
         
-        // ========== 步骤5：映射到物理量 ==========
-        float rawVx = accumulatedLateralSpeed;
-        float rawOmega = accumulatedAngularSpeed;
-        
-        // ========== 步骤6：输出平滑 ==========
+        // ========== 步骤4：输出平滑 ==========
         smoothedVx = Mathf.Lerp(smoothedVx, rawVx, smoothingAlpha);
         smoothedOmega = Mathf.Lerp(smoothedOmega, rawOmega, smoothingAlpha);
         
-        // ========== 步骤7：下发控制 ==========
+        // ========== 步骤5：下发控制 ==========
         if (myCarMotion != null)
         {
             myCarMotion.SetControl(constantForwardSpeed, smoothedVx, smoothedOmega);
@@ -120,7 +103,6 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
         if (showDebugInfo && Time.frameCount % 30 == 0)
         {
             Debug.Log($"[FuzzyTest] 模糊输出: vx_norm={outputVxNorm:F4}, omega_norm={outputOmegaNorm:F4} | " +
-                     $"累积状态: accVx={accVxNorm:F4}, accOmega={accOmegaNorm:F4} | " +
                      $"平滑后: vx={smoothedVx:F4} m/s, omega={smoothedOmega * Mathf.Rad2Deg:F2} deg/s");
         }
     }
@@ -137,7 +119,5 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
         }
         smoothedVx = 0f;
         smoothedOmega = 0f;
-        accumulatedLateralSpeed = 0f;
-        accumulatedAngularSpeed = 0f;
     }
 }
