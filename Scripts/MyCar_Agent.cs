@@ -744,11 +744,42 @@ public class MyCarAgent : Agent
     }
 
     // ========== 数据收集方法 ==========
+    // CSV 列说明（共 17 列）：
+    //
+    // ---- 输入特征（模糊规则库 / 决策树共用）----
+    //  [0]  front_lr_diff     前排左右差（归一化 [-1,1]）
+    //  [1]  rear_lr_diff      后排左右差（归一化 [-1,1]）
+    //  [2]  front_center      前中传感器（归一化 [0,1]）
+    //  [3]  rear_center       后中传感器（归一化 [0,1]）
+    //  [4]  accumulated_vx    当前累积横向速度（归一化 [-1,1]）
+    //  [5]  accumulated_omega 当前累积角速度（归一化 [-1,1]）
+    //  [6]  actual_vz         实际前进速度（归一化）
+    //  [7]  actual_vx         实际横向速度（归一化）
+    //  [8]  actual_omega      实际角速度（归一化）
+    //
+    // ---- 增量动作（NN 原始输出，用于决策树蒸馏）----
+    //  [9]  delta_x           横向速度增量 [-1,1]
+    //  [10] delta_w           角速度增量 [-1,1]
+    //
+    // ---- 直接动作（累积后归一化，用于模糊规则库）----
+    //  [11] output_vx_norm    累积横向速度输出（归一化 [-1,1]，= accumulated_vx 更新后）
+    //  [12] output_omega_norm 累积角速度输出（归一化 [-1,1]，= accumulated_omega 更新后）
+    //
+    // ---- 6维原始传感器（用于需要完整传感器的分析）----
+    //  [13] sensor_fl         前左传感器（归一化 [0,1]）
+    //  [14] sensor_fc         前中传感器（归一化 [0,1]，同 [2]）
+    //  [15] sensor_fr         前右传感器（归一化 [0,1]）
+    //  [16] sensor_rl         后左传感器（归一化 [0,1]）
+    //  [17] sensor_rc         后中传感器（归一化 [0,1]，同 [3]）
+    //  [18] sensor_rr         后右传感器（归一化 [0,1]）
+    //
+    // 模糊规则库建立推荐使用列：
+    //   输入: [0]front_lr_diff, [1]rear_lr_diff, [2]front_center, [3]rear_center
+    //   输出: [11]output_vx_norm, [12]output_omega_norm
+    //
     private void RecordSample(float deltaX, float deltaW)
     {
-        List<float> observations = new List<float>();
-
-        // obs[0-3]: 磁传感器派生特征
+        // ---- 读取 6 个原始传感器 ----
         float[] rawSensor = new float[6];
         for (int i = 0; i < sensors.Length; i++)
         {
@@ -756,32 +787,75 @@ public class MyCarAgent : Agent
                 rawSensor[i] = tape.GetMagneticField(sensors[i].position).magnitude;
         }
         float invMax = 1f / Mathf.Max(1e-9f, maxField);
-        observations.Add(Mathf.Clamp((rawSensor[0] - rawSensor[2]) * invMax, -1f, 1f));
-        observations.Add(Mathf.Clamp((rawSensor[3] - rawSensor[5]) * invMax, -1f, 1f));
-        observations.Add(Mathf.Clamp01(rawSensor[1] * invMax));
-        observations.Add(Mathf.Clamp01(rawSensor[4] * invMax));
 
-        // obs[4-5]: 当前累积输出
+        // ---- 4 维派生特征 ----
+        float frontLRDiff  = Mathf.Clamp((rawSensor[0] - rawSensor[2]) * invMax, -1f, 1f);
+        float rearLRDiff   = Mathf.Clamp((rawSensor[3] - rawSensor[5]) * invMax, -1f, 1f);
+        float frontCenter  = Mathf.Clamp01(rawSensor[1] * invMax);
+        float rearCenter   = Mathf.Clamp01(rawSensor[4] * invMax);
+
+        // ---- 累积输出状态（动作执行前的值）----
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        observations.Add(Mathf.Clamp(accumulatedLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f));
-        observations.Add(Mathf.Clamp(accumulatedAngularSpeed / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f));
+        float accVxNorm    = Mathf.Clamp(accumulatedLateralSpeed / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f);
+        float accOmegaNorm = Mathf.Clamp(accumulatedAngularSpeed / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f);
 
-        // obs[6-8]: 物理状态
+        // ---- 物理状态 ----
         Vector3 localVel = transform.InverseTransformDirection(rb != null ? rb.linearVelocity : Vector3.zero);
         float angularVel = rb != null ? rb.angularVelocity.y : 0f;
-        observations.Add(Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f));
-        observations.Add(Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f));
-        observations.Add(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
+        float actualVz    = Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f);
+        float actualVx    = Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f);
+        float actualOmega = Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f);
 
-        StringBuilder sb = new StringBuilder();
-        foreach (float obs in observations)
+        // ---- 计算增量执行后的累积输出（直接动作值）----
+        // 模拟增量累积后的结果（与 OnActionReceived 中的逻辑一致）
+        float newAccLateral = accumulatedLateralSpeed;
+        float newAccAngular = accumulatedAngularSpeed;
+        if (outputDecayFactor < 1f)
         {
-            sb.Append(obs.ToString("F6"));
-            sb.Append(",");
+            newAccLateral *= outputDecayFactor;
+            newAccAngular *= outputDecayFactor;
         }
-        sb.Append(deltaX.ToString("F6"));
-        sb.Append(",");
-        sb.Append(deltaW.ToString("F6"));
+        newAccLateral = Mathf.Clamp(
+            newAccLateral + deltaX * maxDeltaLateralSpeed, -maxLateralSpeed, maxLateralSpeed);
+        newAccAngular = Mathf.Clamp(
+            newAccAngular + deltaW * maxDeltaOmegaDeg * Mathf.Deg2Rad, -maxOmegaRad, maxOmegaRad);
+        
+        float outputVxNorm    = Mathf.Clamp(newAccLateral / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f);
+        float outputOmegaNorm = Mathf.Clamp(newAccAngular / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f);
+
+        // ---- 6 维原始传感器归一化 ----
+        float sensorFL = Mathf.Clamp01(rawSensor[0] * invMax);
+        float sensorFC = frontCenter;  // 与 [2] 相同
+        float sensorFR = Mathf.Clamp01(rawSensor[2] * invMax);
+        float sensorRL = Mathf.Clamp01(rawSensor[3] * invMax);
+        float sensorRC = rearCenter;   // 与 [3] 相同
+        float sensorRR = Mathf.Clamp01(rawSensor[5] * invMax);
+
+        // ---- 构建 CSV 行 ----
+        StringBuilder sb = new StringBuilder();
+        // 输入特征 [0-8]
+        sb.Append(frontLRDiff.ToString("F6"));  sb.Append(",");
+        sb.Append(rearLRDiff.ToString("F6"));   sb.Append(",");
+        sb.Append(frontCenter.ToString("F6"));  sb.Append(",");
+        sb.Append(rearCenter.ToString("F6"));   sb.Append(",");
+        sb.Append(accVxNorm.ToString("F6"));    sb.Append(",");
+        sb.Append(accOmegaNorm.ToString("F6")); sb.Append(",");
+        sb.Append(actualVz.ToString("F6"));     sb.Append(",");
+        sb.Append(actualVx.ToString("F6"));     sb.Append(",");
+        sb.Append(actualOmega.ToString("F6"));  sb.Append(",");
+        // 增量动作 [9-10]（NN原始输出，决策树蒸馏用）
+        sb.Append(deltaX.ToString("F6"));       sb.Append(",");
+        sb.Append(deltaW.ToString("F6"));       sb.Append(",");
+        // 直接动作 [11-12]（累积后归一化，模糊规则库用）
+        sb.Append(outputVxNorm.ToString("F6"));    sb.Append(",");
+        sb.Append(outputOmegaNorm.ToString("F6")); sb.Append(",");
+        // 原始传感器 [13-18]（完整分析用）
+        sb.Append(sensorFL.ToString("F6")); sb.Append(",");
+        sb.Append(sensorFC.ToString("F6")); sb.Append(",");
+        sb.Append(sensorFR.ToString("F6")); sb.Append(",");
+        sb.Append(sensorRL.ToString("F6")); sb.Append(",");
+        sb.Append(sensorRC.ToString("F6")); sb.Append(",");
+        sb.Append(sensorRR.ToString("F6"));
         
         collectedData.Add(sb.ToString());
     }
@@ -858,7 +932,9 @@ public class MyCarAgent : Agent
                 string header = "front_lr_diff,rear_lr_diff,front_center,rear_center," +
                                "accumulated_vx,accumulated_omega," +
                                "actual_vz,actual_vx,actual_omega," +
-                               "delta_x,delta_w";
+                               "delta_x,delta_w," +
+                               "output_vx_norm,output_omega_norm," +
+                               "sensor_fl,sensor_fc,sensor_fr,sensor_rl,sensor_rc,sensor_rr";
                 File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
                 episodeDataHeaderWritten = true;
             }
@@ -938,7 +1014,9 @@ public class MyCarAgent : Agent
         string header = "front_lr_diff,rear_lr_diff,front_center,rear_center," +
                        "accumulated_vx,accumulated_omega," +
                        "actual_vz,actual_vx,actual_omega," +
-                       "delta_x,delta_w";
+                       "delta_x,delta_w," +
+                       "output_vx_norm,output_omega_norm," +
+                       "sensor_fl,sensor_fc,sensor_fr,sensor_rl,sensor_rc,sensor_rr";
         csv.Add(header);
         csv.AddRange(collectedData);
 
