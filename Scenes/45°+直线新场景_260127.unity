@@ -432,10 +432,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: d46c338f737f7df4c96576d407799465, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 3ef5b041fc96438499a28b023f12f72e, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_260309
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_260310
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -463,7 +463,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -504,13 +504,13 @@ MonoBehaviour:
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
   alignedAngularPenalty: 0.8
-  alignedAngularDeadZone: 0.04
-  alignedAngularMaxPenaltyThreshold: 0.13
+  alignedAngularDeadZone: 0.02
+  alignedAngularMaxPenaltyThreshold: 0.1
   alignedLateralPenalty: 0.8
   alignedLateralDeadZone: 0.1
   alignedLateralMaxPenaltyThreshold: 0.25
   enableRewardTracking: 0
-  enableDebugLog: 0
+  enableDebugLog: 1
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 1.2
@@ -528,7 +528,7 @@ MonoBehaviour:
   - 180
   - 0
   - 180
-  randomYawRange: 8
+  randomYawRange: 0
 --- !u!114 &714007409
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -600,7 +600,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 

@@ -58,6 +58,8 @@ public class MyCarAgent : Agent
     public float alignedThresholdPercent = 0.1f;
     [Tooltip("对齐状态：中心传感器阈值（占 maxField 的比例）")]
     public float centerThresholdPercent = 0.65f;
+    [Tooltip("对齐状态：实际角速度上限（deg/s），超过此值视为未对齐")]
+    public float alignedAngularVelocityThresholdDeg = 15f;
     [Tooltip("对齐状态的额外奖励")]
     public float alignedBonus = 0.5f;
 
@@ -97,6 +99,20 @@ public class MyCarAgent : Agent
     [Range(0f, 1f)]
     public float alignedLateralMaxPenaltyThreshold = 0.3f;
 
+    [Header("5. 速度变化率惩罚 (Velocity Change Rate Penalty)")]
+    [Tooltip("横向速度变化率惩罚系数（全状态生效）。0=不惩罚，建议0.5-2.0")]
+    [Range(0f, 5f)]
+    public float lateralChangeRatePenaltyCoeff = 1.0f;
+    [Tooltip("横向速度变化率死区（归一化值）。变化率低于此值不惩罚")]
+    [Range(0f, 0.5f)]
+    public float lateralChangeRateDeadZone = 0.05f;
+    [Tooltip("角速度变化率惩罚系数（全状态生效）。0=不惩罚，建议0.5-2.0")]
+    [Range(0f, 5f)]
+    public float angularChangeRatePenaltyCoeff = 1.0f;
+    [Tooltip("角速度变化率死区（归一化值）。变化率低于此值不惩罚")]
+    [Range(0f, 0.5f)]
+    public float angularChangeRateDeadZone = 0.05f;
+
     [Header("Reward Tracking (for Display)")]
     [Tooltip("是否启用奖励跟踪（用于UI显示）")]
     public bool enableRewardTracking = true;
@@ -112,8 +128,10 @@ public class MyCarAgent : Agent
         public float speedCoefficient;      // 速度系数
         public float straightOutputPenalty; // 直线输出限制惩罚
         public float straightOutputPenaltyPercent; // 直线输出惩罚百分比（0-100%）
+        public float velocityChangeRatePenalty; // 速度变化率惩罚
+        public float warningPenalty;       // 预警区域惩罚（乘以dt后）
         public float totalReward;          // 总奖励（乘以dt前）
-        public float rewardThisFrame;      // 本帧奖励（乘以dt后）
+        public float rewardThisFrame;      // 本帧合计奖励（含预警惩罚，乘以dt后）
     }
     private RewardComponents currentRewardComponents;  // 当前奖励组成部分
     
@@ -123,6 +141,10 @@ public class MyCarAgent : Agent
     public int RewardHistoryLength => rewardHistoryLength;
     public int RewardHistoryIndex => rewardHistoryIndex;
     public RewardComponents CurrentRewardComponents => currentRewardComponents;
+    
+    // 输出增量（归一化值 [-1, 1]）
+    public float CurrentDeltaX { get; private set; } = 0f;
+    public float CurrentDeltaW { get; private set; } = 0f;
 
     [Header("Debug")]
     public bool enableDebugLog = false;  // 调试日志开关
@@ -156,6 +178,8 @@ public class MyCarAgent : Agent
     public float outputDecayFactor = 1.0f;
     private float accumulatedLateralSpeed = 0f;
     private float accumulatedAngularSpeed = 0f;
+    private float prevAccumulatedLateralSpeed = 0f;   // 上一帧累积横向速度（用于计算变化率）
+    private float prevAccumulatedAngularSpeed = 0f;  // 上一帧累积角速度（用于计算变化率）
 
     [Header("Start pose")]
     public Quaternion startRot = Quaternion.Euler(0f, 0f, 0f);
@@ -322,6 +346,10 @@ public class MyCarAgent : Agent
         isStableAligned = false;
         accumulatedLateralSpeed = 0f;
         accumulatedAngularSpeed = 0f;
+        CurrentDeltaX = 0f;
+        CurrentDeltaW = 0f;
+        prevAccumulatedLateralSpeed = 0f;
+        prevAccumulatedAngularSpeed = 0f;
         
         // 重置奖励跟踪
         if (enableRewardTracking)
@@ -361,7 +389,8 @@ public class MyCarAgent : Agent
     {
         // obs[0-3]: 磁传感器派生特征（4维）
         float[] rawSensor = new float[6];
-        for (int i = 0; i < sensors.Length; i++)
+        int sensorCount = (sensors != null) ? Mathf.Min(sensors.Length, 6) : 0;
+        for (int i = 0; i < sensorCount; i++)
         {
             if (sensors[i] != null && tape != null)
                 rawSensor[i] = tape.GetMagneticField(sensors[i].position).magnitude;
@@ -386,11 +415,15 @@ public class MyCarAgent : Agent
         sensor.AddObservation(Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f));
     }
 
-    public override void OnActionReceived(ActionBuffers actions)
+    public override void OnActionReceived(ActionBuffers actions) 
     { 
         // 连续动作：0=横向速度增量比例，1=自转速度增量比例（增量式输出）
         float delta_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
         float delta_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        
+        // 存储当前增量值（供外部访问）
+        CurrentDeltaX = delta_x;
+        CurrentDeltaW = delta_w;
 
         // ========== 数据收集（如果启用） ==========
         if (enableDataCollection)
@@ -439,12 +472,32 @@ public class MyCarAgent : Agent
 
         // 读取传感器数据
         float[] sensorValues = new float[6];
-        for (int i = 0; i < sensors.Length; i++)
+        // 检查传感器数组长度
+        if (sensors == null || sensors.Length < 6)
         {
-            if (sensors[i] != null && tape != null)
+            if (enableDebugLog)
             {
-                Vector3 mag = tape.GetMagneticField(sensors[i].position);
-                sensorValues[i] = mag.magnitude;
+                Debug.LogWarning($"[MyCar_Agent] 传感器数组长度不足！需要6个传感器，当前：{(sensors == null ? 0 : sensors.Length)}");
+            }
+            // 如果传感器数量不足，填充0值（会导致对齐判断失败，但不会崩溃）
+            for (int i = 0; i < 6; i++)
+            {
+                sensorValues[i] = 0f;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                if (sensors[i] != null && tape != null)
+                {
+                    Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                    sensorValues[i] = mag.magnitude;
+                }
+                else
+                {
+                    sensorValues[i] = 0f;  // 传感器为null时，明确设置为0
+                }
             }
         }
 
@@ -500,6 +553,8 @@ public class MyCarAgent : Agent
                     speedCoefficient = 0f,
                     straightOutputPenalty = 0f,
                     straightOutputPenaltyPercent = 0f,
+                    velocityChangeRatePenalty = 0f,
+                    warningPenalty = 0f,
                     totalReward = derailPenalty,
                     rewardThisFrame = derailPenalty
                 };
@@ -526,45 +581,40 @@ public class MyCarAgent : Agent
             return;
         }
         
+        // ========== 预警区域惩罚 ==========
+        float warningPenaltyThisFrame = 0f;
         if (minCenter < warningUpperThresholdValue && minCenter >= derailThresholdValue)
         {
             float dangerRatio = 1f - (minCenter - derailThresholdValue) / (warningUpperThresholdValue - derailThresholdValue);
-            float warningPenalty = warningPenaltyCoefficient * dangerRatio * Time.fixedDeltaTime;
-            AddReward(warningPenalty);
-            
-            // 记录预警惩罚（用于显示）
-            if (enableRewardTracking)
-            {
-                cumulativeReward += warningPenalty;
-                if (rewardHistory != null)
-                {
-                    rewardHistory[rewardHistoryIndex] = warningPenalty;
-                    rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
-                }
-            }
+            warningPenaltyThisFrame = warningPenaltyCoefficient * dangerRatio * Time.fixedDeltaTime;
+            AddReward(warningPenaltyThisFrame);
             
             if (enableDebugLog)
             {
-                Debug.Log($"[Warning] 预警区域！minCenter={minCenter:F4} ({minCenter/maxField*100:F1}%), dangerRatio={dangerRatio:F3}, penalty={warningPenalty:F4}");
+                Debug.Log($"[Warning] 预警区域！minCenter={minCenter:F4} ({minCenter/maxField*100:F1}%), dangerRatio={dangerRatio:F3}, penalty={warningPenaltyThisFrame:F4}");
             }
         }
-        // 预警上限以上：正常奖励计算
 
         // ========== 计算奖励 ==========
         float reward = CalculateReward(sensorValues, isAligned, isStableAligned, outputVx, outputOmega);
         float rewardThisFrame = reward * Time.fixedDeltaTime;
         AddReward(rewardThisFrame);
         
-        // 记录奖励（用于显示）
+        // 更新上一帧累积速度（用于下一帧计算变化率）
+        prevAccumulatedLateralSpeed = accumulatedLateralSpeed;
+        prevAccumulatedAngularSpeed = accumulatedAngularSpeed;
+        
+        // 记录奖励（用于显示）：预警惩罚 + 正常奖励合并为一条记录
         if (enableRewardTracking)
         {
-            // 更新奖励组成部分中的本帧奖励值
-            currentRewardComponents.rewardThisFrame = rewardThisFrame;
+            float combinedReward = warningPenaltyThisFrame + rewardThisFrame;
+            currentRewardComponents.warningPenalty = warningPenaltyThisFrame;
+            currentRewardComponents.rewardThisFrame = combinedReward;
             
-            cumulativeReward += rewardThisFrame;
+            cumulativeReward += combinedReward;
             if (rewardHistory != null)
             {
-                rewardHistory[rewardHistoryIndex] = rewardThisFrame;
+                rewardHistory[rewardHistoryIndex] = combinedReward;
                 rewardHistoryIndex = (rewardHistoryIndex + 1) % rewardHistoryLength;
             }
         }
@@ -603,7 +653,11 @@ public class MyCarAgent : Agent
         bool leftRightAligned = (frontDiff < diffThreshold) && (rearDiff < diffThreshold);
         bool centerStrong = (frontCenter > centerThreshold) && (rearCenter > centerThreshold);
         
-        return leftRightAligned && centerStrong;
+        // 实际角速度必须低于阈值才视为对齐（抑制高速旋转时误判为对齐）
+        float actualAngularVelDeg = rb != null ? Mathf.Abs(rb.angularVelocity.y) * Mathf.Rad2Deg : 0f;
+        bool angularVelocityLow = actualAngularVelDeg < alignedAngularVelocityThresholdDeg;
+        
+        return leftRightAligned && centerStrong && angularVelocityLow;
     }
 
     float CalculateReward(float[] s, bool isAligned, bool isStableAligned, float outputVx, float outputOmega)
@@ -650,7 +704,16 @@ public class MyCarAgent : Agent
         }
         else if (forwardSpeed >= lowSpeedThreshold)
         {
-            speedCoefficient = (forwardSpeed - lowSpeedThreshold) / (highSpeedThreshold - lowSpeedThreshold);
+            // 防止除零：如果阈值相等，使用默认值
+            float thresholdDiff = highSpeedThreshold - lowSpeedThreshold;
+            if (Mathf.Abs(thresholdDiff) < 1e-6f)
+            {
+                speedCoefficient = 1.0f;  // 阈值相等时，默认给满系数
+            }
+            else
+            {
+                speedCoefficient = (forwardSpeed - lowSpeedThreshold) / thresholdDiff;
+            }
         }
         else
         {
@@ -662,6 +725,8 @@ public class MyCarAgent : Agent
                     speedCoefficient = 0f,
                     straightOutputPenalty = 0f,
                     straightOutputPenaltyPercent = 0f,
+                    velocityChangeRatePenalty = 0f,
+                    warningPenalty = 0f,
                     totalReward = speedPenalty,
                     rewardThisFrame = speedPenalty * Time.fixedDeltaTime
                 };
@@ -734,9 +799,49 @@ public class MyCarAgent : Agent
             straightOutputPenaltyPercent = Mathf.Max(angularPenaltyPercent, lateralPenaltyPercent);
         }
 
-        // ========== 4. 最终奖励 ==========
+        // ========== 4. 速度变化率惩罚（全状态生效，横向/角速度独立计算） ==========
+        // 4.1 横向速度变化率惩罚
+        float lateralChangeRate = Mathf.Abs(outputVx - prevAccumulatedLateralSpeed) 
+                                  / Mathf.Max(1e-6f, maxLateralSpeed);
+        float lateralCRPenalty = 0f;
+        if (lateralChangeRate > lateralChangeRateDeadZone && lateralChangeRatePenaltyCoeff > 0f)
+        {
+            float denom = 1f - lateralChangeRateDeadZone;
+            if (denom > 1e-6f)
+            {
+                float ratio = Mathf.Clamp01((lateralChangeRate - lateralChangeRateDeadZone) / denom);
+                lateralCRPenalty = -lateralChangeRatePenaltyCoeff * ratio;
+            }
+            else
+            {
+                lateralCRPenalty = -lateralChangeRatePenaltyCoeff;
+            }
+        }
+        
+        // 4.2 角速度变化率惩罚
+        float angularChangeRate = Mathf.Abs(outputOmega - prevAccumulatedAngularSpeed) 
+                                  / Mathf.Max(1e-6f, maxOmegaDeg * Mathf.Deg2Rad);
+        float angularCRPenalty = 0f;
+        if (angularChangeRate > angularChangeRateDeadZone && angularChangeRatePenaltyCoeff > 0f)
+        {
+            float denom = 1f - angularChangeRateDeadZone;
+            if (denom > 1e-6f)
+            {
+                float ratio = Mathf.Clamp01((angularChangeRate - angularChangeRateDeadZone) / denom);
+                angularCRPenalty = -angularChangeRatePenaltyCoeff * ratio;
+            }
+            else
+            {
+                angularCRPenalty = -angularChangeRatePenaltyCoeff;
+            }
+        }
+        
+        float velocityChangeRatePenalty = lateralCRPenalty + angularCRPenalty;
+
+        // ========== 5. 最终奖励 ==========
         float totalReward = alignmentReward * speedCoefficient
-                           + straightOutputPenalty;
+                           + straightOutputPenalty
+                           + velocityChangeRatePenalty;
         
         if (enableRewardTracking)
         {
@@ -746,6 +851,8 @@ public class MyCarAgent : Agent
                 speedCoefficient = speedCoefficient,
                 straightOutputPenalty = straightOutputPenalty,
                 straightOutputPenaltyPercent = straightOutputPenaltyPercent,
+                velocityChangeRatePenalty = velocityChangeRatePenalty,
+                warningPenalty = 0f,  // 将在调用处设置
                 totalReward = totalReward,
                 rewardThisFrame = 0f  // 将在调用处设置
             };

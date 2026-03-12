@@ -23,6 +23,10 @@ public class MyCar_StateDisplay : MonoBehaviour
     public int curveHistoryLength = 200;  // 曲线历史数据点数
     public Vector2 curveAreaPosition = new Vector2(520, 10);
     public Vector2 curveAreaSize = new Vector2(400, 250);
+    [Tooltip("增量曲线显示位置")]
+    public Vector2 incrementCurvePosition = new Vector2(930, 10);
+    [Tooltip("增量曲线显示大小")]
+    public Vector2 incrementCurveSize = new Vector2(400, 250);
     
     [Header("Reward Display Settings")]
     [Tooltip("是否显示奖励信息")]
@@ -39,10 +43,14 @@ public class MyCar_StateDisplay : MonoBehaviour
     private static Texture2D _bgTexture;
     private static Texture2D _cyanTexture;
     private static Texture2D _magentaTexture;
+    private static Texture2D _yellowTexture;
+    private static Texture2D _greenTexture;
     private static Material _glLineMaterial;
     
     private float[] _lateralSpeedHistory;
     private float[] _angularSpeedHistory;
+    private float[] _deltaXHistory;
+    private float[] _deltaWHistory;
     private int _historyIndex = 0;
 
     // 缓存 GUIStyle，避免每帧 new
@@ -81,6 +89,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         // 初始化曲线缓冲区
         _lateralSpeedHistory = new float[curveHistoryLength];
         _angularSpeedHistory = new float[curveHistoryLength];
+        _deltaXHistory = new float[curveHistoryLength];
+        _deltaWHistory = new float[curveHistoryLength];
         
         // 初始化图例颜色纹理
         if (_cyanTexture == null)
@@ -94,6 +104,18 @@ public class MyCar_StateDisplay : MonoBehaviour
             _magentaTexture = new Texture2D(1, 1);
             _magentaTexture.SetPixel(0, 0, Color.magenta);
             _magentaTexture.Apply();
+        }
+        if (_yellowTexture == null)
+        {
+            _yellowTexture = new Texture2D(1, 1);
+            _yellowTexture.SetPixel(0, 0, Color.yellow);
+            _yellowTexture.Apply();
+        }
+        if (_greenTexture == null)
+        {
+            _greenTexture = new Texture2D(1, 1);
+            _greenTexture.SetPixel(0, 0, Color.green);
+            _greenTexture.Apply();
         }
     }
 
@@ -197,6 +219,9 @@ public class MyCar_StateDisplay : MonoBehaviour
             _angularSpeedHistory[_historyIndex] = myCarAgent.maxOmegaDeg > 0 
                 ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
                 : 0f;
+            // 记录输出增量（已经是归一化值 [-1, 1]）
+            _deltaXHistory[_historyIndex] = myCarAgent.CurrentDeltaX;
+            _deltaWHistory[_historyIndex] = myCarAgent.CurrentDeltaW;
             _historyIndex = (_historyIndex + 1) % curveHistoryLength;
         }
 
@@ -258,6 +283,21 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             GUILayout.Label($"Agent Limits: ConstVz={myCarAgent.constantForwardSpeed:F2}m/s | MaxVx={myCarAgent.maxLateralSpeed:F2}m/s | MaxOmega={myCarAgent.maxOmegaDeg:F0}°/s", 
                 GUILayout.Width(displaySize.x - 20));
+            
+            // 显示输出增量（归一化值）
+            GUILayout.Space(5);
+            GUILayout.Label("═══ Agent Output Increments ═══", GUILayout.Width(displaySize.x - 20));
+            float deltaXNorm = myCarAgent.CurrentDeltaX;
+            float deltaWNorm = myCarAgent.CurrentDeltaW;
+            
+            // 计算实际增量值
+            float deltaXReal = deltaXNorm * myCarAgent.maxDeltaLateralSpeed;  // m/s
+            float deltaWReal = deltaWNorm * myCarAgent.maxDeltaOmegaDeg;      // deg/s
+            
+            GUILayout.Label($"归一化增量 - ΔVx: {deltaXNorm:F3} | Δω: {deltaWNorm:F3}", 
+                _diffStyle, GUILayout.Width(displaySize.x - 20));
+            GUILayout.Label($"实际增量 - ΔVx: {deltaXReal:F4} m/s | Δω: {deltaWReal:F2} deg/s", 
+                _detailStyle, GUILayout.Width(displaySize.x - 20));
         }
 
         GUILayout.Space(10);
@@ -352,6 +392,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         if (showOutputCurves && myCarAgent != null)
         {
             DrawOutputCurves();
+            DrawIncrementCurves();
         }
         
         // ========== 绘制奖励信息 ==========
@@ -385,6 +426,29 @@ public class MyCar_StateDisplay : MonoBehaviour
         DrawCurveGraph(innerRect);
     }
 
+    /// <summary>
+    /// 绘制智能体输出增量曲线
+    /// </summary>
+    void DrawIncrementCurves()
+    {
+        Rect curveRect = new Rect(incrementCurvePosition.x, incrementCurvePosition.y, incrementCurveSize.x, incrementCurveSize.y);
+        
+        // 绘制背景
+        GUI.DrawTexture(curveRect, _bgTexture);
+        
+        // 绘制边框
+        GUI.Box(curveRect, "Agent Output Increments");
+        
+        // 绘制图例（在标题下方）
+        DrawIncrementLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
+        
+        // 内部绘制区域（留出边距，为图例留出空间）
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 45, curveRect.width - 20, curveRect.height - 55);
+        
+        // 绘制网格和曲线
+        DrawIncrementGraph(innerRect);
+    }
+
     void DrawCurveGraph(Rect graphRect)
     {
         // 获取当前值（正规化到 -1 ~ 1）
@@ -411,6 +475,32 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
         GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", _curveLabelStyle);
         GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", _curveLabelStyle);
+        GUILayout.EndArea();
+    }
+
+    void DrawIncrementGraph(Rect graphRect)
+    {
+        // 获取当前增量值（已经是归一化值 [-1, 1]）
+        float currentDeltaXNorm = myCarAgent.CurrentDeltaX;
+        float currentDeltaWNorm = myCarAgent.CurrentDeltaW;
+        
+        // 绘制坐标轴和网格
+        DrawGraphGrid(graphRect);
+        
+        // 绘制两条增量曲线
+        DrawCurveLineWithColor(graphRect, _deltaXHistory, Color.yellow, "ΔVx");
+        DrawCurveLineWithColor(graphRect, _deltaWHistory, Color.green, "Δω");
+        
+        float labelX = graphRect.x + 10;
+        float labelY = graphRect.yMax + 5;
+
+        // 计算实际增量值
+        float currentDeltaXReal = currentDeltaXNorm * myCarAgent.maxDeltaLateralSpeed;  // m/s
+        float currentDeltaWReal = currentDeltaWNorm * myCarAgent.maxDeltaOmegaDeg;      // deg/s
+        
+        GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
+        GUILayout.Label($"归一化增量 - ΔVx: {currentDeltaXNorm:F3} | Δω: {currentDeltaWNorm:F3}", _curveLabelStyle);
+        GUILayout.Label($"实际增量 - ΔVx: {currentDeltaXReal:F4} m/s | Δω: {currentDeltaWReal:F2} deg/s", _curveLabelStyle);
         GUILayout.EndArea();
     }
 
@@ -458,6 +548,15 @@ public class MyCar_StateDisplay : MonoBehaviour
     {
         DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.cyan, "横向速度 (Vx)", _legendStyle);
         DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.magenta, "角速度 (ω)", _legendStyle);
+    }
+
+    /// <summary>
+    /// 绘制增量曲线图例
+    /// </summary>
+    void DrawIncrementLegend(Rect legendRect)
+    {
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.yellow, "横向增量 (ΔVx)", _legendStyle);
+        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.green, "角速度增量 (Δω)", _legendStyle);
     }
     
     /// <summary>
@@ -575,12 +674,20 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUILayout.Label($"2. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚: {components.straightOutputPenaltyPercent:F1}%)", 
             _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
         
+        _rewardLabelStyle.normal.textColor = components.velocityChangeRatePenalty < 0 ? Color.red : Color.green;
+        GUILayout.Label($"3. 速度变化率惩罚: {components.velocityChangeRatePenalty:F4}", 
+            _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
+        
+        _rewardLabelStyle.normal.textColor = components.warningPenalty < 0 ? Color.red : Color.green;
+        GUILayout.Label($"4. 预警区域惩罚: {components.warningPenalty:F4}", 
+            _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
+        
         GUILayout.Space(5);
         
         _rewardTotalStyle.normal.textColor = Color.cyan;
         GUILayout.Label($"总奖励(×dt前): {components.totalReward:F4}", _rewardTotalStyle, GUILayout.Width(rewardRect.width - 20));
         _rewardTotalStyle.normal.textColor = components.rewardThisFrame >= 0 ? Color.green : Color.red;
-        GUILayout.Label($"本帧奖励(×dt后): {components.rewardThisFrame:F4}", _rewardTotalStyle, GUILayout.Width(rewardRect.width - 20));
+        GUILayout.Label($"本帧合计(×dt后): {components.rewardThisFrame:F4}", _rewardTotalStyle, GUILayout.Width(rewardRect.width - 20));
         
         GUILayout.EndArea();
     }
@@ -701,6 +808,16 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             Destroy(_magentaTexture);
             _magentaTexture = null;
+        }
+        if (_yellowTexture != null)
+        {
+            Destroy(_yellowTexture);
+            _yellowTexture = null;
+        }
+        if (_greenTexture != null)
+        {
+            Destroy(_greenTexture);
+            _greenTexture = null;
         }
         if (_glLineMaterial != null)
         {
