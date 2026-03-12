@@ -57,11 +57,34 @@ N_DIFF_SETS = 5
 # 中心变量（front_center, rear_center）的模糊集数量（建议 3 或 5）
 N_CENTER_SETS = 3
 
+# 最小间距比例（data-driven 模式专用）
+# 相邻MF中心之间的最小间距 = 等间距距离 × 此比例
+# 0 = 无约束（纯数据驱动，可能导致MF极端聚集）
+# 0.5 = 最小间距为等间距的50%（推荐，平衡分辨率与覆盖范围）
+# 1.0 = 完全等间距（退化为 equal 模式）
+MIN_SPACING_RATIO = 0.5
+
 # 最小规则支持度（低于此值的规则被剪枝，即匹配该规则的数据点数量下限）
 MIN_RULE_SUPPORT = 3
 
 # 最小规则强度（低于此值的规则被剪枝，即规则触发强度下限）
 MIN_RULE_STRENGTH = 0.01
+
+# 是否启用规则覆盖补全（推荐开启）
+# 用于修复“训练数据集中于直行，转弯规则缺失”的问题
+ENABLE_RULE_COMPLETION = True
+
+# 规则补全后规则数上限（避免规则爆炸）
+RULE_COMPLETION_MAX_ADDED = 320
+
+# 镜像规则强度衰减系数（0~1）
+RULE_COMPLETION_MIRROR_STRENGTH_SCALE = 0.85
+
+# 严重偏差外推强度衰减系数（0~1）
+RULE_COMPLETION_EXTRAP_STRENGTH_SCALE = 0.70
+
+# 严重偏差外推输出放大系数（每跨一级偏差，输出放大比例）
+RULE_COMPLETION_EXTRAP_GAIN = 0.35
 
 # 是否生成可视化图表
 ENABLE_VISUALIZE = False
@@ -426,7 +449,7 @@ class FuzzyRuleGenerator:
     
     # ===== 隶属函数生成 =====
     
-    def generate_mfs(self, method="equal", n_diff=5, n_center=3):
+    def generate_mfs(self, method="equal", n_diff=5, n_center=3, min_spacing_ratio=0.5):
         """
         自动生成隶属函数
         
@@ -434,9 +457,14 @@ class FuzzyRuleGenerator:
           method: "equal" (等间距) 或 "data-driven" (数据驱动)
           n_diff: 偏差变量的模糊集数量
           n_center: 中心变量的模糊集数量
+          min_spacing_ratio: data-driven模式的最小间距比例 (0~1)
+                            相邻MF中心间距 ≥ 等间距 × ratio
+                            0=无约束, 0.5=推荐, 1.0=完全等间距
         """
         print(f"\n{'='*60}")
         print(f"[2/5] 生成隶属函数 (方法: {method})")
+        if method == "data-driven":
+            print(f"      最小间距比例: {min_spacing_ratio}")
         print(f"{'='*60}")
         
         # 确定每个变量的模糊集数量和类型
@@ -462,7 +490,11 @@ class FuzzyRuleGenerator:
             data_col = self.input_data[:, col_idx]
             
             if method == "data-driven":
-                fvar = self._generate_data_driven_mfs(var_name, var_range, data_col, n, set_names)
+                fvar = self._generate_data_driven_mfs(
+                    var_name, var_range, data_col, n, set_names,
+                    is_symmetric=is_sym,
+                    min_spacing_ratio=min_spacing_ratio
+                )
             else:
                 fvar = self._generate_equal_mfs(var_name, var_range, n, set_names)
             
@@ -506,61 +538,170 @@ class FuzzyRuleGenerator:
         
         return fvar
     
-    def _generate_data_driven_mfs(self, var_name, var_range, data_col, n_sets, set_names):
+    def _generate_data_driven_mfs(self, var_name, var_range, data_col, n_sets, set_names,
+                                  is_symmetric=False, min_spacing_ratio=0.5):
         """
-        数据驱动的隶属函数生成
+        数据驱动的隶属函数生成（带最小间距约束）
         
-        原理：
-          1. 使用数据的百分位数确定MF中心（而非等间距）
-          2. 数据密集区域的MF更窄（分辨率更高）
-          3. 数据稀疏区域的MF更宽（覆盖更广）
+        解决的核心问题：
+          纯百分位数法在训练数据分布极端集中时（如RL训练数据95%+在对齐状态），
+          会导致所有MF中心聚集在极小范围内（如 [-1,1] 范围中仅 0.02 宽度），
+          使控制器在分布外完全丧失分辨能力，无法泛化。
         
-        这样生成的MF更好地匹配实际数据分布，
-        在数据密集区域（如车身居中时 front_lr_diff≈0）有更精细的模糊划分
+        改进策略：
+          1. 对称变量（lr_diff）：强制 ZE 集中心 = 物理零点(0)，
+             负/正半轴分别用各自数据的百分位数放置中间MF
+          2. 最小间距约束：相邻MF中心距离 ≥ 等间距 × min_spacing_ratio，
+             防止MF过度聚集，保证全输入范围的基本覆盖
+          3. 数据稀疏区域自动回退到等间距分布
+        
+        参数:
+          is_symmetric: 变量是否关于零点对称（如 lr_diff ∈ [-1,1]）
+          min_spacing_ratio: 最小间距 / 等间距 的比例 (0~1)
         """
         fvar = FuzzyVariable(var_name, var_range)
         lo, hi = var_range
+        total_range = hi - lo
         
-        # 使用等间距的百分位数作为MF中心
-        percentiles = np.linspace(0, 100, n_sets + 2)[1:-1]  # 排除0%和100%
-        centers = np.percentile(data_col, percentiles)
+        if is_symmetric and n_sets >= 3 and n_sets % 2 == 1:
+            # ===== 对称变量：分半处理，ZE 中心强制为物理零点 =====
+            mid_idx = n_sets // 2
+            zero_point = (lo + hi) / 2.0  # 对称中心（[-1,1] → 0）
+            
+            # --- 负半轴：[lo, ..., zero_point] ---
+            n_neg_inner = mid_idx - 1  # 不含边界 lo 和中心 zero_point
+            neg_half_range = zero_point - lo
+            neg_equal_spacing = neg_half_range / mid_idx if mid_idx > 0 else neg_half_range
+            neg_min_spacing = neg_equal_spacing * min_spacing_ratio
+            
+            if n_neg_inner > 0:
+                neg_data = data_col[data_col < zero_point]
+                if len(neg_data) > 100:
+                    pcts = np.linspace(0, 100, n_neg_inner + 2)[1:-1]
+                    neg_inner = np.sort(np.percentile(neg_data, pcts))
+                else:
+                    # 数据不足，回退到等间距
+                    neg_inner = np.linspace(lo, zero_point, n_neg_inner + 2)[1:-1]
+                neg_all = np.concatenate([[lo], neg_inner, [zero_point]])
+            else:
+                neg_all = np.array([lo, zero_point])
+            neg_all = self._enforce_min_spacing(neg_all, neg_min_spacing, lo, zero_point)
+            
+            # --- 正半轴：[zero_point, ..., hi] ---
+            n_pos_total = n_sets - mid_idx  # 含 hi，不含 zero_point
+            n_pos_inner = n_pos_total - 1   # 不含边界 zero_point 和 hi
+            pos_half_range = hi - zero_point
+            pos_equal_spacing = pos_half_range / (n_pos_total) if n_pos_total > 0 else pos_half_range
+            pos_min_spacing = pos_equal_spacing * min_spacing_ratio
+            
+            if n_pos_inner > 0:
+                pos_data = data_col[data_col > zero_point]
+                if len(pos_data) > 100:
+                    pcts = np.linspace(0, 100, n_pos_inner + 2)[1:-1]
+                    pos_inner = np.sort(np.percentile(pos_data, pcts))
+                else:
+                    pos_inner = np.linspace(zero_point, hi, n_pos_inner + 2)[1:-1]
+                pos_all = np.concatenate([[zero_point], pos_inner, [hi]])
+            else:
+                pos_all = np.array([zero_point, hi])
+            pos_all = self._enforce_min_spacing(pos_all, pos_min_spacing, zero_point, hi)
+            
+            # 合并（去掉重复的 zero_point）
+            centers = np.concatenate([neg_all, pos_all[1:]])
+            
+            print(f"    [对称模式] ZE中心固定={zero_point:.3f}, "
+                  f"负半轴{len(neg_all)}点, 正半轴{len(pos_all)}点")
+        else:
+            # ===== 非对称变量：全范围百分位数 + 最小间距 =====
+            equal_spacing = total_range / (n_sets - 1) if n_sets > 1 else total_range
+            min_spacing = equal_spacing * min_spacing_ratio
+            
+            percentiles = np.linspace(0, 100, n_sets + 2)[1:-1]
+            centers = np.percentile(data_col, percentiles)
+            centers = np.clip(centers, lo, hi)
+            centers = np.sort(centers)
+            
+            # 去重后数量修正
+            centers = np.unique(np.round(centers, 6))
+            if len(centers) < n_sets:
+                equal_c = np.linspace(lo, hi, n_sets)
+                centers = np.sort(np.unique(np.concatenate([centers, equal_c])))
+            if len(centers) > n_sets:
+                idx = np.linspace(0, len(centers) - 1, n_sets).astype(int)
+                centers = centers[idx]
+            
+            centers[0] = lo
+            centers[-1] = hi
+            centers = self._enforce_min_spacing(centers, min_spacing, lo, hi)
         
-        # 确保中心点单调递增且在范围内
-        centers = np.clip(centers, lo, hi)
-        centers = np.sort(np.unique(np.round(centers, 6)))
+        # ===== 诊断信息：显示间距 =====
+        gaps = np.diff(centers)
+        equal_gap = total_range / (n_sets - 1) if n_sets > 1 else total_range
+        min_gap_actual = gaps.min() if len(gaps) > 0 else 0
+        print(f"    [间距] 最小={min_gap_actual:.4f}, 最大={gaps.max():.4f}, "
+              f"等间距={equal_gap:.4f}, 比值={min_gap_actual/equal_gap:.2f}")
         
-        # 如果去重后数量不够，补充等间距点
-        if len(centers) < n_sets:
-            equal_centers = np.linspace(lo, hi, n_sets)
-            centers = np.sort(np.unique(np.concatenate([centers, equal_centers])))[:n_sets]
-        elif len(centers) > n_sets:
-            # 从中均匀选取
-            idx = np.linspace(0, len(centers) - 1, n_sets).astype(int)
-            centers = centers[idx]
-        
-        # 确保首尾与范围边界对齐
-        centers[0] = lo
-        centers[-1] = hi
-        
-        # 生成三角形MF（相邻中心之间重叠）
+        # ===== 生成三角形MF =====
         for i in range(n_sets):
             c = centers[i]
             if i == 0:
-                a = lo
-                b = lo
-                r = centers[1] if n_sets > 1 else hi
+                a, b, r = lo, lo, (centers[1] if n_sets > 1 else hi)
             elif i == n_sets - 1:
-                a = centers[i - 1]
-                b = hi
-                r = hi
+                a, b, r = centers[i - 1], hi, hi
             else:
-                a = centers[i - 1]
-                b = c
-                r = centers[i + 1]
-            
+                a, b, r = centers[i - 1], c, centers[i + 1]
             fvar.add_mf(TriangularMF(set_names[i], a, b, r))
         
         return fvar
+    
+    @staticmethod
+    def _enforce_min_spacing(centers, min_spacing, lo, hi):
+        """
+        强制相邻MF中心之间至少有 min_spacing 的间距
+        
+        算法：
+          1. 将小于 min_spacing 的间距扩大到 min_spacing
+          2. 按比例缩放所有间距，使总和 = (hi - lo)
+          3. 若范围不足以容纳所有 min_spacing，回退到等间距
+        
+        参数:
+          centers: MF中心数组（已排序，首尾为边界）
+          min_spacing: 最小允许间距
+          lo, hi: 变量范围边界
+        返回:
+          调整后的中心数组
+        """
+        n = len(centers)
+        if n < 2 or min_spacing <= 0:
+            return centers
+        
+        centers = np.array(centers, dtype=float)
+        total_range = hi - lo
+        gaps = np.diff(centers)
+        
+        # 如果所有间距已满足，直接返回
+        if np.all(gaps >= min_spacing - 1e-9):
+            return centers
+        
+        # 将过小间距扩大到 min_spacing
+        clamped_gaps = np.maximum(gaps, min_spacing)
+        total_clamped = clamped_gaps.sum()
+        
+        if total_clamped < 1e-9:
+            # 退化情况：回退到等间距
+            return np.linspace(lo, hi, n)
+        
+        # 按比例缩放使总和 = total_range
+        clamped_gaps = clamped_gaps * (total_range / total_clamped)
+        
+        # 从左到右重建中心位置
+        new_centers = np.zeros(n)
+        new_centers[0] = lo
+        for i in range(1, n):
+            new_centers[i] = new_centers[i - 1] + clamped_gaps[i - 1]
+        new_centers[-1] = hi  # 精确设置末端
+        
+        return new_centers
     
     # ===== 聚类法模糊系统辨识 =====
     
@@ -850,7 +991,12 @@ class FuzzyRuleGenerator:
     
     # ===== Wang-Mendel 规则提取 =====
     
-    def extract_rules(self, min_support=3, min_strength=0.01):
+    def extract_rules(self, min_support=3, min_strength=0.01,
+                      enable_rule_completion=False,
+                      completion_max_added=220,
+                      mirror_strength_scale=0.85,
+                      extrap_strength_scale=0.70,
+                      extrap_gain=0.25):
         """
         使用 Wang-Mendel 方法从数据中提取模糊规则
         
@@ -864,6 +1010,11 @@ class FuzzyRuleGenerator:
         参数:
           min_support: 最小支持度（匹配该规则的数据点数量）
           min_strength: 最小规则强度
+          enable_rule_completion: 是否启用规则覆盖补全
+          completion_max_added: 补全规则上限
+          mirror_strength_scale: 镜像规则强度衰减
+          extrap_strength_scale: 外推规则强度衰减
+          extrap_gain: 外推规则输出放大系数
         """
         print(f"\n{'='*60}")
         print(f"[3/5] 提取模糊规则 (Wang-Mendel 方法)")
@@ -948,8 +1099,162 @@ class FuzzyRuleGenerator:
         # 统计覆盖率
         total_covered = sum(r.support_count for r in self.rules)
         print(f"    数据覆盖率: {total_covered}/{n_samples} ({total_covered/n_samples*100:.1f}%)")
+
+        # 规则覆盖补全：对称镜像 + 严重偏差外推
+        if enable_rule_completion:
+            self._complete_rule_coverage(
+                max_added=completion_max_added,
+                mirror_strength_scale=mirror_strength_scale,
+                extrap_strength_scale=extrap_strength_scale,
+                extrap_gain=extrap_gain
+            )
         
         return self.rules
+
+    def _get_symmetric_level_map(self, var_name):
+        """返回对称变量的等级映射（如 NB=-3 ... ZE=0 ... PB=+3）"""
+        fvar = self.input_vars.get(var_name, None)
+        if fvar is None:
+            return None, None
+
+        mf_names = [mf.name for mf in fvar.mfs]
+        if "ZE" not in mf_names:
+            return None, None
+
+        ze_idx = mf_names.index("ZE")
+        level_by_name = {name: i - ze_idx for i, name in enumerate(mf_names)}
+        mirror_by_name = {name: mf_names[2 * ze_idx - i] for i, name in enumerate(mf_names)}
+        return level_by_name, mirror_by_name
+
+    def _make_rule_key(self, antecedent):
+        return tuple((name, antecedent[name]) for name in self.input_col_names)
+
+    @staticmethod
+    def _clip_outputs(consequent):
+        return {k: float(np.clip(v, -1.0, 1.0)) for k, v in consequent.items()}
+
+    def _complete_rule_coverage(self, max_added=220, mirror_strength_scale=0.85,
+                                extrap_strength_scale=0.70, extrap_gain=0.25):
+        """
+        规则覆盖补全（根治转弯缺失）：
+          1) 对称镜像：左转规则 -> 右转规则（或反向）
+          2) 偏差外推：NS/PS -> NM/PM -> NB/PB，输出按偏差级别放大
+        """
+        if len(self.rules) == 0:
+            return
+
+        symmetric_vars = [v for v in self.input_col_names if v.endswith("_lr_diff")]
+        if len(symmetric_vars) == 0:
+            return
+
+        # 规则索引（用于判重）
+        existing = {self._make_rule_key(r.antecedent): r for r in self.rules}
+        added_rules = []
+
+        # 构建每个对称变量的等级和镜像映射
+        var_maps = {}
+        for v in symmetric_vars:
+            level_map, mirror_map = self._get_symmetric_level_map(v)
+            if level_map is not None:
+                var_maps[v] = (level_map, mirror_map)
+
+        if len(var_maps) == 0:
+            return
+
+        # --- A. 对称镜像补全 ---
+        original_rules = list(self.rules)
+        for rule in original_rules:
+            if len(added_rules) >= max_added:
+                break
+
+            mirrored_ant = dict(rule.antecedent)
+            changed = False
+            for v, (_, mirror_map) in var_maps.items():
+                old_name = mirrored_ant[v]
+                new_name = mirror_map.get(old_name, old_name)
+                mirrored_ant[v] = new_name
+                changed = changed or (new_name != old_name)
+
+            if not changed:
+                continue
+
+            key = self._make_rule_key(mirrored_ant)
+            if key in existing:
+                continue
+
+            # 左右镜像下，横向速度与角速度符号反转
+            new_con = dict(rule.consequent_values)
+            if "output_vx_norm" in new_con:
+                new_con["output_vx_norm"] = -new_con["output_vx_norm"]
+            if "output_omega_norm" in new_con:
+                new_con["output_omega_norm"] = -new_con["output_omega_norm"]
+            new_con = self._clip_outputs(new_con)
+
+            new_rule = FuzzyRule(
+                mirrored_ant, new_con,
+                strength=float(rule.strength) * mirror_strength_scale,
+                support_count=0
+            )
+            existing[key] = new_rule
+            added_rules.append(new_rule)
+
+        # --- B. 偏差等级外推补全 ---
+        source_rules = list(self.rules) + list(added_rules)
+        for rule in source_rules:
+            if len(added_rules) >= max_added:
+                break
+
+            for v, (level_map, _) in var_maps.items():
+                cur_name = rule.antecedent[v]
+                cur_level = level_map.get(cur_name, 0)
+                if cur_level == 0:
+                    continue
+
+                # 逐级向更大偏差外推，直到边界
+                sign = 1 if cur_level > 0 else -1
+                max_abs = max(abs(x) for x in level_map.values())
+                for next_abs in range(abs(cur_level) + 1, max_abs + 1):
+                    if len(added_rules) >= max_added:
+                        break
+                    target_level = sign * next_abs
+                    target_name = None
+                    for name, lv in level_map.items():
+                        if lv == target_level:
+                            target_name = name
+                            break
+                    if target_name is None:
+                        continue
+
+                    new_ant = dict(rule.antecedent)
+                    new_ant[v] = target_name
+                    key = self._make_rule_key(new_ant)
+                    if key in existing:
+                        continue
+
+                    # 偏差越大，纠偏输出幅度应更大
+                    level_step = next_abs - abs(cur_level)
+                    scale = 1.0 + extrap_gain * level_step
+                    new_con = {
+                        out_name: float(val) * scale
+                        for out_name, val in rule.consequent_values.items()
+                    }
+                    new_con = self._clip_outputs(new_con)
+
+                    new_rule = FuzzyRule(
+                        new_ant, new_con,
+                        strength=float(rule.strength) * (extrap_strength_scale ** level_step),
+                        support_count=0
+                    )
+                    existing[key] = new_rule
+                    added_rules.append(new_rule)
+
+        if len(added_rules) > 0:
+            self.rules.extend(added_rules)
+            self.rules.sort(key=lambda r: r.strength, reverse=True)
+            print(f"\n  规则覆盖补全:")
+            print(f"    新增规则: {len(added_rules)} 条")
+            print(f"    补全后总规则数: {len(self.rules)} 条")
+            print(f"    补全策略: 对称镜像 + 偏差外推")
     
     # ===== 评估 =====
     
@@ -1361,6 +1666,9 @@ class FuzzyRuleGenerator:
         lines.append(f"        float sumWeightedVx = 0f;")
         lines.append(f"        float sumWeightedOmega = 0f;")
         lines.append(f"        float sumWeights = 0f;")
+        lines.append(f"        float bestWeight = -1f;")
+        lines.append(f"        float bestVx = 0f;")
+        lines.append(f"        float bestOmega = 0f;")
         lines.append(f"")
         lines.append(f"        for (int r = 0; r < N_RULES; r++)")
         lines.append(f"        {{")
@@ -1388,6 +1696,12 @@ class FuzzyRuleGenerator:
         lines.append(f"                sumWeightedVx += w * outVx;")
         lines.append(f"                sumWeightedOmega += w * outOmega;")
         lines.append(f"                sumWeights += w;")
+        lines.append(f"                if (w > bestWeight)")
+        lines.append(f"                {{")
+        lines.append(f"                    bestWeight = w;")
+        lines.append(f"                    bestVx = outVx;")
+        lines.append(f"                    bestOmega = outOmega;")
+        lines.append(f"                }}")
         lines.append(f"            }}")
         lines.append(f"        }}")
         lines.append(f"")
@@ -1399,10 +1713,33 @@ class FuzzyRuleGenerator:
         lines.append(f"        }}")
         lines.append(f"        else")
         lines.append(f"        {{")
-        lines.append(f"            // 无规则匹配时，输出零（保持当前状态）")
-        lines.append(f"            outputVx = 0f;")
-        lines.append(f"            outputOmega = 0f;")
+        lines.append(f"            // 兜底策略：无有效加权时使用触发最强单条规则")
+        lines.append(f"            if (bestWeight > 0f)")
+        lines.append(f"            {{")
+        lines.append(f"                outputVx = Mathf.Clamp(bestVx, -1f, 1f);")
+        lines.append(f"                outputOmega = Mathf.Clamp(bestOmega, -1f, 1f);")
+        lines.append(f"            }}")
+        lines.append(f"            else")
+        lines.append(f"            {{")
+        lines.append(f"                outputVx = 0f;")
+        lines.append(f"                outputOmega = 0f;")
+        lines.append(f"            }}")
         lines.append(f"        }}")
+        lines.append(f"")
+        lines.append(f"        // 低置信度恢复混合：偏离训练分布时，加入解析式恢复控制，降低脱轨风险")
+        lines.append(f"        float trackConf = Mathf.Clamp01(0.5f * (frontCenter + rearCenter));")
+        lines.append(f"        float lateralErr = 0.55f * frontLRDiff + 0.45f * rearLRDiff;")
+        lines.append(f"        float headingErr = frontLRDiff - rearLRDiff;")
+        lines.append(f"")
+        lines.append(f"        float recoverVx = Mathf.Clamp(-0.85f * lateralErr, -1f, 1f);")
+        lines.append(f"        float recoverOmega = Mathf.Clamp(-(1.15f * lateralErr + 0.75f * headingErr), -1f, 1f);")
+        lines.append(f"")
+        lines.append(f"        float confBlend = Mathf.Clamp01((0.65f - trackConf) / 0.35f);")
+        lines.append(f"        float weightBlend = Mathf.Clamp01((0.05f - sumWeights) / 0.05f);")
+        lines.append(f"        float blend = Mathf.Max(confBlend, weightBlend);")
+        lines.append(f"")
+        lines.append(f"        outputVx = Mathf.Lerp(outputVx, recoverVx, blend);")
+        lines.append(f"        outputOmega = Mathf.Lerp(outputOmega, recoverOmega, blend);")
         lines.append(f"    }}")
         lines.append(f"")
         
@@ -1600,10 +1937,24 @@ def main():
                        help='偏差变量模糊集数量（建议5或7，仅equal/data-driven模式）')
     parser.add_argument('--n-center', type=int, default=N_CENTER_SETS,
                        help='中心变量模糊集数量（建议3或5，仅equal/data-driven模式）')
+    parser.add_argument('--min-spacing-ratio', type=float, default=MIN_SPACING_RATIO,
+                       help='data-driven模式MF最小间距比例(0~1)。'
+                            '0=无约束(纯数据驱动), 0.5=推荐, 1.0=等间距。默认0.5')
     parser.add_argument('--min-support', type=int, default=MIN_RULE_SUPPORT,
                        help='最小规则支持度（仅Wang-Mendel模式）')
     parser.add_argument('--min-strength', type=float, default=MIN_RULE_STRENGTH,
                        help='最小规则强度（仅Wang-Mendel模式）')
+    parser.add_argument('--enable-rule-completion', action='store_true',
+                       default=ENABLE_RULE_COMPLETION,
+                       help='启用规则覆盖补全（对称镜像+偏差外推），推荐开启')
+    parser.add_argument('--completion-max-added', type=int, default=RULE_COMPLETION_MAX_ADDED,
+                       help='规则补全最多新增条数（默认220）')
+    parser.add_argument('--completion-mirror-scale', type=float, default=RULE_COMPLETION_MIRROR_STRENGTH_SCALE,
+                       help='镜像规则强度衰减系数（默认0.85）')
+    parser.add_argument('--completion-extrap-scale', type=float, default=RULE_COMPLETION_EXTRAP_STRENGTH_SCALE,
+                       help='偏差外推规则强度衰减系数（默认0.70）')
+    parser.add_argument('--completion-extrap-gain', type=float, default=RULE_COMPLETION_EXTRAP_GAIN,
+                       help='偏差外推输出放大系数（默认0.25）')
     parser.add_argument('--max-samples', type=int, default=None,
                        help='最大采样数（加速处理）')
     parser.add_argument('--visualize', action='store_true', default=ENABLE_VISUALIZE,
@@ -1648,6 +1999,14 @@ def main():
     else:
         print(f"  偏差变量模糊集数: {args.n_diff}")
         print(f"  中心变量模糊集数: {args.n_center}")
+        if args.mf_method == 'data-driven':
+            print(f"  MF最小间距比例: {args.min_spacing_ratio}")
+        print(f"  规则覆盖补全: {args.enable_rule_completion}")
+        if args.enable_rule_completion:
+            print(f"  补全最大新增规则: {args.completion_max_added}")
+            print(f"  补全镜像强度衰减: {args.completion_mirror_scale}")
+            print(f"  补全外推强度衰减: {args.completion_extrap_scale}")
+            print(f"  补全外推输出增益: {args.completion_extrap_gain}")
         print(f"  可能的最大规则数: {args.n_diff**2 * args.n_center**2}")
     
     # 创建生成器
@@ -1668,13 +2027,19 @@ def main():
         generator.generate_mfs(
             method=args.mf_method,
             n_diff=args.n_diff,
-            n_center=args.n_center
+            n_center=args.n_center,
+            min_spacing_ratio=args.min_spacing_ratio
         )
         
         # Step 3: 提取规则
         rules = generator.extract_rules(
             min_support=args.min_support,
-            min_strength=args.min_strength
+            min_strength=args.min_strength,
+            enable_rule_completion=args.enable_rule_completion,
+            completion_max_added=args.completion_max_added,
+            mirror_strength_scale=args.completion_mirror_scale,
+            extrap_strength_scale=args.completion_extrap_scale,
+            extrap_gain=args.completion_extrap_gain
         )
     
     if args.print_rules:
