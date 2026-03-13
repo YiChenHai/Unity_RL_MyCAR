@@ -309,8 +309,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalPosition: {x: 0, y: 0, z: 20}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -318,7 +318,7 @@ Transform:
   - {fileID: 1449184691}
   - {fileID: 561079415}
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!54 &714007403
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -560,7 +560,7 @@ MonoBehaviour:
   showDebugInfo: 1
   showOutputCurves: 1
   displayPosition: {x: 10, y: 10}
-  displaySize: {x: 480, y: 550}
+  displaySize: {x: 480, y: 600}
   curveHistoryLength: 200
   curveAreaPosition: {x: 520, y: 10}
   curveAreaSize: {x: 400, y: 250}
