@@ -72,7 +72,7 @@ MIN_RULE_STRENGTH = 0.01
 
 # 是否启用规则覆盖补全（推荐开启）
 # 用于修复“训练数据集中于直行，转弯规则缺失”的问题
-ENABLE_RULE_COMPLETION = True
+ENABLE_RULE_COMPLETION = False
 
 # 规则补全后规则数上限（避免规则爆炸）
 RULE_COMPLETION_MAX_ADDED = 320
