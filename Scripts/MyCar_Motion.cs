@@ -39,17 +39,20 @@ public class MyCar_Motion : MonoBehaviour
 
     [Header("Wheel / Drive")]
     public float maxWheelLinearSpeed = 4.0f;
-    public float maxMotorTorque = 200f;
-    public float brakeTorqueHigh = 1500f;
-    public float brakeGain = 800f;
+    public float maxMotorTorque = 15f;
+    public float brakeTorqueHigh = 8f;
+    public float brakeGain = 30f;
+    [Tooltip("物理增益：每 1 Nm 扭矩产生多少 m/s 车速（从 testMode 标定）")]
+    public float torqueToSpeedGain = 0.29f;
 
     [Header("Speed PID (per wheel)")]
-    public float speed_Kp = 120f;
-    public float speed_Ki = 6f;
-    public float speed_Kd = 20f;
-    public float speed_integratorLimit = 20f;
-    public float speed_outputMin = -200f;
-    public float speed_outputMax = 200f;
+    [Tooltip("作用于速度误差(m/s)，输出为扭矩修正(Nm)")]
+    public float speed_Kp = 3f;
+    public float speed_Ki = 1f;
+    public float speed_Kd = 0f;
+    public float speed_integratorLimit = 2f;
+    public float speed_outputMin = -5f;
+    public float speed_outputMax = 5f;
     public float speedDeadband = 0.01f;
 
     [Header("Steer PID (per wheel)")]
@@ -65,6 +68,11 @@ public class MyCar_Motion : MonoBehaviour
 
     [Header("Debug")]
     public bool enableDebugLog = true;
+
+    [Header("Test - 极简物理诊断")]
+    [Tooltip("勾选后绕过所有PID/运动学，直接给WheelCollider施加固定扭矩")]
+    public bool testMode = false;
+    public float testTorque = 1.0f;
 
     Rigidbody rb;
 
@@ -82,6 +90,8 @@ public class MyCar_Motion : MonoBehaviour
 
     [HideInInspector] public float[] steerAngles = new float[4];
     [HideInInspector] public float[] wheelSpeeds = new float[4];
+
+    private Vector2[] wheelPos = new Vector2[4];
 
     void Awake()
     {
@@ -101,6 +111,8 @@ public class MyCar_Motion : MonoBehaviour
             steerCmdDeg[i] = 0f;
             prevWheelSpeedCmd[i] = 0f;
         }
+
+        UpdateWheelPositions();
     }
 
     void OnValidate()
@@ -117,14 +129,32 @@ public class MyCar_Motion : MonoBehaviour
             {
                 steerPIDs[i].SetGains(steer_Kp, steer_Ki, steer_Kd);
                 steerPIDs[i].SetIntegratorLimits(-steer_integratorLimit, steer_integratorLimit);
-                steerPIDs[i].SetOutputLimits(-maxSteerRateDeg, maxSteerRateDeg);  // PID输出为角速率（度/秒）
+                steerPIDs[i].SetOutputLimits(-maxSteerRateDeg, maxSteerRateDeg);
             }
         }
+        UpdateWheelPositions();
+    }
+
+    void UpdateWheelPositions()
+    {
+        wheelPos[0] = new Vector2( wheelBase / 2f,  trackWidth / 2f);
+        wheelPos[1] = new Vector2(-wheelBase / 2f,  trackWidth / 2f);
+        wheelPos[2] = new Vector2(-wheelBase / 2f, -trackWidth / 2f);
+        wheelPos[3] = new Vector2( wheelBase / 2f, -trackWidth / 2f);
     }
 
     void FixedUpdate()
     {
-        float vz, vx, omega;  // Unity标准：vz=前进，vx=横向
+        if (enableDebugLog && Time.frameCount % 200 == 1)
+            Debug.Log("[MyCar_Motion] alive frame=" + Time.frameCount + " testMode=" + testMode);
+
+        if (testMode)
+        {
+            RunTestMode();
+            return;
+        }
+
+        float vz, vx, omega;
         if (controlSource == ControlSource.Agent)
         {
             vz = vz_input * inputScaleVz;
@@ -135,13 +165,38 @@ public class MyCar_Motion : MonoBehaviour
         {
             vz = manualVz * inputScaleVz;
             vx = manualVx * inputScaleVx;
-            // manualOmega 单位为度/秒，需要转换为弧度/秒
             omega = -(manualOmega * Mathf.Deg2Rad) * inputScaleOmega;
         }
 
         ComputeKinematics(vz, vx, omega);
         MapAndNormalize();
         ApplyPIDControl();
+    }
+
+    void RunTestMode()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            if (wheelColliders != null && i < wheelColliders.Length && wheelColliders[i] != null)
+            {
+                wheelColliders[i].motorTorque = testTorque;
+                wheelColliders[i].brakeTorque = 0f;
+                wheelColliders[i].steerAngle = 0f;
+            }
+        }
+
+        if (Time.frameCount % 25 == 0)
+        {
+            float bodySpeed = rb.linearVelocity.magnitude;
+            float bodyFwd = Vector3.Dot(rb.linearVelocity, transform.forward);
+            string rpmInfo = "";
+            for (int i = 0; i < 4; i++)
+            {
+                if (wheelColliders != null && i < wheelColliders.Length && wheelColliders[i] != null)
+                    rpmInfo += $" w{i}rpm={wheelColliders[i].rpm:F0}";
+            }
+            Debug.Log($"[TEST] torque={testTorque:F1} bodyFwd={bodyFwd:F3} bodyMag={bodySpeed:F3}{rpmInfo}");
+        }
     }
 
     void LateUpdate()
@@ -173,16 +228,7 @@ public class MyCar_Motion : MonoBehaviour
             return;
         }
 
-        // 定义四个轮子在车体坐标系中的位置 (x=纵向, y=横向)
-        // Unity坐标系：X轴=右，Z轴=前
-        Vector2[] wheelPos = new Vector2[4] {
-            new Vector2( wheelBase/2f,  trackWidth/2f),  // FL (0): 前左轮
-            new Vector2(-wheelBase/2f,  trackWidth/2f),  // RL (1): 后左轮
-            new Vector2(-wheelBase/2f, -trackWidth/2f),  // RR (2): 后右轮
-            new Vector2( wheelBase/2f, -trackWidth/2f)   // FR (3): 前右轮
-        };
-
-        // 第一步：速度合成 - 刚体运动学公式
+        // 速度合成 - 刚体运动学公式
         // v_wheel = v_body + omega × r （叉乘）
         for (int i = 0; i < 4; i++)
         {
@@ -257,151 +303,130 @@ public class MyCar_Motion : MonoBehaviour
     }
 
     /// <summary>
-    /// PID控制器应用：将运动学解算结果（目标轮速、转向角）转换为实际控制指令
-    /// 分两部分：1) 轮速PID控制电机扭矩  2) 转向角速率限制跟随
+    /// PID控制器应用：将运动学解算结果转换为实际控制指令
+    /// 含舵轮最短路径优化、逐轮方向反转检测、转向角PID跟随、轮速PID控制
     /// </summary>
     void ApplyPIDControl()
     {
         float dt = Time.fixedDeltaTime;
 
-        // ========== 速度反转检测 ==========
-        // 检测速度目标是否发生方向反转（从正变负或从负变正）
-        bool directionChanged = false;
-        for (int j = 0; j < 4; j++)
-        {
-            float prevSign = Mathf.Sign(prevWheelSpeedCmd[j]);
-            float currSign = Mathf.Sign(appliedSpeed[j]);
-            
-            // 如果前一帧命令和当前目标的符号不同，且都不为零，说明发生了反转
-            if (prevSign != 0f && currSign != 0f && prevSign != currSign)
-            {
-                directionChanged = true;
-                break;
-            }
-        }
+        // 车体速度（仅用于日志显示）
+        Vector3 bodyVelWorld = rb.linearVelocity;
+        Vector3 bodyVelLocal = transform.InverseTransformDirection(bodyVelWorld);
 
-        // 方向反转时重置所有轮的 PID 积分器（避免积分饱和导致响应迟缓）
-        if (directionChanged)
-        {
-            for (int j = 0; j < 4; j++)
-            {
-                speedPIDs[j].ResetIntegrator();
-            }
-            if (enableDebugLog)
-            {
-                Debug.Log("[ApplyPIDControl] Direction reversed! Reset all PID integrators.");
-            }
-        }
-
-        // ========== 逐轮控制循环 ==========
         for (int j = 0; j < 4; j++)
         {
             WheelCollider wc = (wheelColliders != null && j < wheelColliders.Length) ? wheelColliders[j] : null;
             float wheelRadius = (wc != null) ? Mathf.Max(1e-4f, wc.radius) : 0.05f;
-            
-            // 获取当前轮速（从WheelCollider的RPM转换为线速度 m/s）
-            // 公式：v = (RPM / 60) * 2π * r
-            float current_v = 0f;
-            if (wc != null) current_v = wc.rpm / 60f * 2f * Mathf.PI * wheelRadius;
 
-            float desired_v = appliedSpeed[j];           // 目标轮速 (m/s)
-            float desiredSteerDeg = appliedSteerDeg[j];  // 目标转向角 (度)
+            float desiredSteerDeg = appliedSteerDeg[j];
+            float desired_v = appliedSpeed[j];
+
+            // ComputeKinematics 已将角度折叠到 ±90°，这里只做安全限位
+            desiredSteerDeg = Mathf.Clamp(desiredSteerDeg, -90f, 90f);
+
+            // ========== 逐轮方向反转检测 ==========
+            float prevSign = Mathf.Sign(prevWheelSpeedCmd[j]);
+            float currSign = Mathf.Sign(desired_v);
+            if (prevSign != 0f && currSign != 0f && prevSign != currSign)
+            {
+                speedPIDs[j].Reset();
+                if (enableDebugLog)
+                    Debug.Log($"[Wheel {j}] Direction reversed, speed PID reset.");
+            }
 
             // ========== 转向角PID跟随控制 ==========
-            // 计算转向角误差（使用DeltaAngle确保最短路径，±90°范围内）
             float steerErrorDeg = Mathf.DeltaAngle(steerCmdDeg[j], desiredSteerDeg);
-
             float steerRateCmdDeg = 0f;
+
             if (Mathf.Abs(steerErrorDeg) < steerDeadbandDeg)
             {
-                // 误差在死区内：停止调整
-                steerPIDs[j].ResetIntegrator();
-                steerRateCmdDeg = 0f;
+                steerPIDs[j].Reset();
             }
             else
             {
-                // 误差超出死区：PID输出转向角速率（度/秒）
-                steerRateCmdDeg = steerPIDs[j].Update(steerErrorDeg, dt);
+                steerRateCmdDeg = steerPIDs[j].Update(steerErrorDeg, steerCmdDeg[j], dt);
             }
 
-            // 更新转向角命令（向目标角度移动，速率由PID输出限制）
-            // MoveTowardsAngle会自动选择最短路径（处理±180°环绕）
-            steerCmdDeg[j] = Mathf.MoveTowardsAngle(steerCmdDeg[j], desiredSteerDeg, Mathf.Abs(steerRateCmdDeg) * dt);
-            
-            // 限制转向角在±90°范围内（与运动学解算的角度折叠保持一致）
-            steerCmdDeg[j] = Mathf.Clamp(steerCmdDeg[j], -90f, 90f);
-            
-            // 调试：检查转向角跟随
-            if (enableDebugLog && Time.frameCount % 30 == 0)
+            float prevSteerError = steerErrorDeg;
+            steerCmdDeg[j] += steerRateCmdDeg * dt;
+            float newSteerError = Mathf.DeltaAngle(steerCmdDeg[j], desiredSteerDeg);
+            if (Mathf.Sign(newSteerError) != Mathf.Sign(prevSteerError)
+                && Mathf.Abs(prevSteerError) > steerDeadbandDeg)
             {
-                Debug.Log($"[Wheel {j}] Target={desiredSteerDeg:F1}°, Current={steerCmdDeg[j]:F1}°, Error={steerErrorDeg:F1}°, Rate={steerRateCmdDeg:F1}°/s");
+                steerCmdDeg[j] = desiredSteerDeg;
             }
-            
-            // 计算速度误差
-            float speedError = desired_v - current_v;
 
-            // ========== 轮速PID控制 ==========
-            // 根据误差大小采用不同控制策略
+            // ========== 轮速控制（前馈 + PID 微调，基于车体速度反馈）==========
+            // 用 Rigidbody.GetPointVelocity 获取该轮接触点的真实速度（含平动+旋转）
+            // 再投影到轮子前进方向，得到精确的 groundSpeed
+            float groundSpeed = 0f;
+            if (wc != null)
+            {
+                Vector3 wheelWorldPos = wc.transform.TransformPoint(wc.center);
+                Vector3 pointVel = rb.GetPointVelocity(wheelWorldPos);
+                Vector3 pointVelLocal = transform.InverseTransformDirection(pointVel);
+                float steerRad = steerCmdDeg[j] * Mathf.Deg2Rad;
+                groundSpeed = pointVelLocal.z * Mathf.Cos(steerRad) + pointVelLocal.x * Mathf.Sin(steerRad);
+            }
+
+            float speedError = desired_v - groundSpeed;
+
             if (Mathf.Abs(desired_v) < speedDeadband)
             {
-                // 情况1：目标速度本身接近零 → 完全停止
-                speedPIDs[j].ResetIntegrator();
+                speedPIDs[j].Reset();
                 if (wc != null)
                 {
                     wc.motorTorque = 0f;
-                    // 自适应制动：速度越大，制动力越大
-                    float autoBrake = Mathf.Clamp(brakeGain * Mathf.Abs(current_v), 0f, brakeTorqueHigh);
-                    wc.brakeTorque = autoBrake;
+                    wc.brakeTorque = Mathf.Clamp(brakeGain * Mathf.Abs(groundSpeed), 0f, brakeTorqueHigh);
                 }
-            }
-            else if (Mathf.Abs(speedError) < speedDeadband)
-            {
-                // 情况2：误差在死区内 → 使用低增益PID维持速度（抵消摩擦力）
-                // 不重置积分器，使用降低的P增益来平滑维持
-                float maintainTorque = speedError * (speed_Kp * 0.3f);  // 使用30%的P增益
-                maintainTorque = Mathf.Clamp(maintainTorque, -maxMotorTorque * 0.2f, maxMotorTorque * 0.2f);  // 限制在20%扭矩范围
-                
-                if (wc != null)
-                {
-                    wc.brakeTorque = 0f;
-                    wc.motorTorque = maintainTorque;  // 施加维持扭矩
-                }
-            }
+            } 
             else
-            {
-                // 情况3：误差超出死区 → 正常 PID 控制
-                // PID输出为电机扭矩 (Nm)
-                float torqueCmd = speedPIDs[j].Update(speedError, dt);
-                torqueCmd = Mathf.Clamp(torqueCmd, -maxMotorTorque, maxMotorTorque);
+            { 
+                // 前馈：直接从标定的物理增益反推所需扭矩
+                float feedforward = desired_v / Mathf.Max(0.01f, torqueToSpeedGain);
+                // PID：仅修正误差（输出单位也是 Nm）
+                float pidOut = speedPIDs[j].Update(speedError, groundSpeed, dt);
+                float torqueCmd = Mathf.Clamp(feedforward + pidOut, -maxMotorTorque, maxMotorTorque);
+
                 if (wc != null)
                 {
-                    wc.brakeTorque = 0f;
                     wc.motorTorque = torqueCmd;
+                    // 超速时辅助刹车：速度超过目标时施加制动，与电机反扭矩叠加
+                    float overspeed = Mathf.Abs(groundSpeed) - Mathf.Abs(desired_v);
+                    if (overspeed > speedDeadband && Mathf.Sign(groundSpeed) == Mathf.Sign(desired_v))
+                        wc.brakeTorque = Mathf.Clamp(brakeGain * overspeed, 0f, brakeTorqueHigh);
+                    else
+                        wc.brakeTorque = 0f;
                 }
             }
 
-            // 应用转向角到WheelCollider
-            if (wc != null)
-            {
-                wc.steerAngle = steerCmdDeg[j];
-            }
+            // 物理限位：实际舵轮角度限制在 ±90°
+            float beforeClamp = steerCmdDeg[j];
+            steerCmdDeg[j] = Mathf.Clamp(steerCmdDeg[j], -90f, 90f);
+            if (beforeClamp != steerCmdDeg[j])
+                steerPIDs[j].Reset();
 
-            // 记录状态供外部读取
+            if (wc != null) wc.steerAngle = steerCmdDeg[j];
+
             steerAngles[j] = steerCmdDeg[j] * Mathf.Deg2Rad;
-            wheelSpeeds[j] = current_v;
+            wheelSpeeds[j] = groundSpeed;
+            prevWheelSpeedCmd[j] = desired_v;
         }
 
-        // 保存当前速度命令用于下一帧比较
-        for (int j = 0; j < 4; j++)
-        {
-            prevWheelSpeedCmd[j] = appliedSpeed[j];
-        }
-
-        // 调试打印：实际轮速和转向角
         if (enableDebugLog && Time.frameCount % 30 == 0)
         {
-            Debug.Log($"[wheelSpeeds] FL={wheelSpeeds[0]:F3}, RL={wheelSpeeds[1]:F3}, RR={wheelSpeeds[2]:F3}, FR={wheelSpeeds[3]:F3}");
-            Debug.Log($"[steerCmdDeg] FL={steerCmdDeg[0]:F1}°, RL={steerCmdDeg[1]:F1}°, RR={steerCmdDeg[2]:F1}°, FR={steerCmdDeg[3]:F1}°");
+            float bodyFwd = bodyVelLocal.z;
+            float bodyLat = bodyVelLocal.x;
+            float yawDeg = rb.angularVelocity.y * Mathf.Rad2Deg;
+            Debug.Log($"[Motion] bodyFwd={bodyFwd:F3} bodyLat={bodyLat:F3} yawRate={yawDeg:F1}°/s | groundV: FL={wheelSpeeds[0]:F3} RL={wheelSpeeds[1]:F3} RR={wheelSpeeds[2]:F3} FR={wheelSpeeds[3]:F3}");
+            Debug.Log($"[Motion] desired: FL={appliedSpeed[0]:F3} RL={appliedSpeed[1]:F3} RR={appliedSpeed[2]:F3} FR={appliedSpeed[3]:F3} | steer: FL={steerCmdDeg[0]:F1}° RL={steerCmdDeg[1]:F1}° RR={steerCmdDeg[2]:F1}° FR={steerCmdDeg[3]:F1}°");
+            if (wheelColliders != null && wheelColliders.Length >= 4)
+            {
+                var w0 = wheelColliders[0]; var w1 = wheelColliders[1];
+                var w2 = wheelColliders[2]; var w3 = wheelColliders[3];
+                Debug.Log($"[Motion] motor: FL={w0.motorTorque:F2} RL={w1.motorTorque:F2} RR={w2.motorTorque:F2} FR={w3.motorTorque:F2} | brake: FL={w0.brakeTorque:F2} RL={w1.brakeTorque:F2}");
+            }
         }
     }
 
@@ -444,20 +469,29 @@ public class MyCar_Motion : MonoBehaviour
         public float Kp, Ki, Kd;
         private float integrator;
         private float lastError;
+        private float lastMeasurement;
+        private bool hasPrevMeasurement;
         private float integMin = -Mathf.Infinity, integMax = Mathf.Infinity;
         private float outMin = -Mathf.Infinity, outMax = Mathf.Infinity;
 
         public PIDController(float p, float i, float d, float integMin_, float integMax_)
         {
             Kp = p; Ki = i; Kd = d;
-            integrator = 0f; lastError = 0f;
+            Reset();
             integMin = integMin_; integMax = integMax_;
         }
 
         public void SetGains(float p, float i, float d) { Kp = p; Ki = i; Kd = d; }
         public void SetIntegratorLimits(float lo, float hi) { integMin = lo; integMax = hi; }
         public void SetOutputLimits(float lo, float hi) { outMin = lo; outMax = hi; }
-        public void ResetIntegrator() { integrator = 0f; lastError = 0f; }
+
+        public void Reset()
+        {
+            integrator = 0f;
+            lastError = 0f;
+            lastMeasurement = 0f;
+            hasPrevMeasurement = false;
+        }
 
         public float Update(float error, float dt)
         {
@@ -465,9 +499,19 @@ public class MyCar_Motion : MonoBehaviour
             integrator = Mathf.Clamp(integrator + error * dt, integMin, integMax);
             float deriv = (error - lastError) / dt;
             lastError = error;
-            float outv = Kp * error + Ki * integrator + Kd * deriv;
-            outv = Mathf.Clamp(outv, outMin, outMax);
-            return outv;
+            return Mathf.Clamp(Kp * error + Ki * integrator + Kd * deriv, outMin, outMax);
+        }
+
+        /// <summary> Derivative-on-measurement variant: avoids setpoint derivative kick </summary>
+        public float Update(float error, float measurement, float dt)
+        {
+            if (dt <= 0f) return 0f;
+            integrator = Mathf.Clamp(integrator + error * dt, integMin, integMax);
+            float deriv = hasPrevMeasurement ? -(measurement - lastMeasurement) / dt : 0f;
+            lastMeasurement = measurement;
+            hasPrevMeasurement = true;
+            lastError = error;
+            return Mathf.Clamp(Kp * error + Ki * integrator + Kd * deriv, outMin, outMax);
         }
     }
 }

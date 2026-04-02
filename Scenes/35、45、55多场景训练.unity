@@ -310,7 +310,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 41, y: 0.15, z: 17.941}
+  m_LocalPosition: {x: -0.2, y: 0.15, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -358,7 +358,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c667595f282c2d84c9483eace042e852, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  controlSource: 1
+  controlSource: 0
   wheelColliders:
   - {fileID: 751401904}
   - {fileID: 897324996}
@@ -382,15 +382,16 @@ MonoBehaviour:
   inputScaleOmega: 1
   deadzone: 0.1
   maxWheelLinearSpeed: 4
-  maxMotorTorque: 200
-  brakeTorqueHigh: 1500
-  brakeGain: 800
-  speed_Kp: 400
-  speed_Ki: 10
-  speed_Kd: 5
-  speed_integratorLimit: 50
-  speed_outputMin: -200
-  speed_outputMax: 200
+  maxMotorTorque: 15
+  brakeTorqueHigh: 8
+  brakeGain: 30
+  torqueToSpeedGain: 0.29
+  speed_Kp: 3
+  speed_Ki: 1
+  speed_Kd: 0
+  speed_integratorLimit: 2
+  speed_outputMin: -5
+  speed_outputMax: 5
   speedDeadband: 0.01
   steer_Kp: 30
   steer_Ki: 0
@@ -399,7 +400,9 @@ MonoBehaviour:
   maxSteerRateDeg: 180
   steerDeadbandDeg: 0.2
   forceWheelZto90: 1
-  enableDebugLog: 0
+  enableDebugLog: 1
+  testMode: 0
+  testTorque: 1
   steerAngles:
   - 0
   - 0
@@ -611,7 +614,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
@@ -683,7 +686,7 @@ WheelCollider:
   m_SuspensionDistance: 0.1
   m_ForceAppPointDistance: 0
   m_Mass: 3
-  m_WheelDampingRate: 2
+  m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
     m_ExtremumValue: 1
@@ -755,7 +758,7 @@ WheelCollider:
   m_SuspensionDistance: 0.1
   m_ForceAppPointDistance: 0
   m_Mass: 3
-  m_WheelDampingRate: 2
+  m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
     m_ExtremumValue: 1
@@ -827,7 +830,7 @@ WheelCollider:
   m_SuspensionDistance: 0.1
   m_ForceAppPointDistance: 0
   m_Mass: 3
-  m_WheelDampingRate: 2
+  m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
     m_ExtremumValue: 1
@@ -2121,7 +2124,7 @@ WheelCollider:
   m_SuspensionDistance: 0.1
   m_ForceAppPointDistance: 0
   m_Mass: 3
-  m_WheelDampingRate: 2
+  m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
     m_ExtremumValue: 1
