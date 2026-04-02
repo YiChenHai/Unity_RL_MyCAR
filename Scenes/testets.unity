@@ -310,7 +310,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0.5}
+  m_LocalPosition: {x: 0, y: 0, z: 1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -327,7 +327,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
   serializedVersion: 4
-  m_Mass: 25
+  m_Mass: 4000
   m_Drag: 0
   m_AngularDrag: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -432,10 +432,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 3ef5b041fc96438499a28b023f12f72e, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: cf20428a007696847a62be7b347d0034, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_260310
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_260311
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -463,7 +463,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -490,7 +490,7 @@ MonoBehaviour:
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.2
-  maxOmegaDeg: 45
+  maxOmegaDeg: 30
   maxField: 8
   maxEpisodeTime: 50
   alignedThresholdPercent: 0.1
@@ -514,24 +514,24 @@ MonoBehaviour:
   lateralChangeRateDeadZone: 0.05
   angularChangeRatePenaltyCoeff: 1
   angularChangeRateDeadZone: 0.05
-  enableRewardTracking: 0
-  enableDebugLog: 1
+  enableRewardTracking: 1
+  enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  stableAlignedTime: 1.2
+  stableAlignedTime: 0.5
   maxDeltaLateralSpeed: 0.02
-  maxDeltaOmegaDeg: 8
+  maxDeltaOmegaDeg: 4
   outputDecayFactor: 1
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: 0, y: 0.15, z: 4.5}
-  - {x: 0, y: 0.15, z: 4.5}
-  - {x: 6, y: 0.15, z: 4.5}
-  - {x: 6, y: 0.15, z: 4.5}
+  - {x: 0, y: 0.15, z: 0.5}
+  - {x: 0, y: 0.15, z: 18.5}
+  - {x: -10, y: 0.15, z: 17.5}
+  - {x: -33, y: 0.15, z: 18.5}
   spawnYawAngles:
   - 0
   - 180
-  - 0
+  - 180
   - 180
   randomYawRange: 0
 --- !u!114 &714007409
@@ -607,7 +607,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
@@ -624,7 +624,7 @@ MonoBehaviour:
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
   maxLateralSpeed: 0.2
-  maxOmegaDeg: 45
+  maxOmegaDeg: 30
   maxField: 8
   smoothingAlpha: 1
   showDebugInfo: 1
@@ -1512,25 +1512,66 @@ LineRenderer:
   m_Positions:
   - {x: 0, y: 0.04, z: 0}
   - {x: 0, y: 0.04, z: 1}
-  - {x: 1, y: 0.04, z: 2}
+  - {x: 0, y: 0.04, z: 2}
   - {x: 1, y: 0.04, z: 3}
-  - {x: 0, y: 0.04, z: 4}
+  - {x: 1, y: 0.04, z: 4}
   - {x: 0, y: 0.04, z: 5}
-  - {x: 1, y: 0.04, z: 6}
+  - {x: 0, y: 0.04, z: 6}
   - {x: 1, y: 0.04, z: 7}
-  - {x: 2, y: 0.04, z: 8}
-  - {x: 2, y: 0.04, z: 9}
-  - {x: 3, y: 0.04, z: 10}
-  - {x: 4, y: 0.04, z: 10}
-  - {x: 5, y: 0.04, z: 10}
-  - {x: 6, y: 0.04, z: 9}
-  - {x: 6, y: 0.04, z: 0}
-  - {x: 5, y: 0.04, z: -1}
-  - {x: 3, y: 0.04, z: -1}
-  - {x: 1, y: 0.04, z: -1}
-  - {x: 0.7, y: 0.04, z: -1}
-  - {x: 0, y: 0.04, z: -0.3}
-  - {x: 0, y: 0.04, z: 0}
+  - {x: 1, y: 0.04, z: 8}
+  - {x: 1, y: 0.04, z: 9}
+  - {x: 1, y: 0.04, z: 10}
+  - {x: 0, y: 0.04, z: 11}
+  - {x: 0, y: 0.04, z: 12}
+  - {x: 0, y: 0.04, z: 13}
+  - {x: 0, y: 0.04, z: 14}
+  - {x: 1, y: 0.04, z: 15}
+  - {x: 1, y: 0.04, z: 16}
+  - {x: 0, y: 0.04, z: 17}
+  - {x: 0, y: 0.04, z: 18}
+  - {x: 0, y: 0.04, z: 19}
+  - {x: 0, y: 0.04, z: 22}
+  - {x: 0, y: 0.04, z: 25}
+  - {x: -10, y: 0.04, z: 25}
+  - {x: -10, y: 0.04, z: 18}
+  - {x: -10, y: 0.04, z: 17}
+  - {x: -10, y: 0.04, z: 16}
+  - {x: -10, y: 0.04, z: 15}
+  - {x: -11, y: 0.04, z: 14}
+  - {x: -11, y: 0.04, z: 13}
+  - {x: -12, y: 0.04, z: 12}
+  - {x: -12, y: 0.04, z: 11}
+  - {x: -12, y: 0.04, z: 10}
+  - {x: -12, y: 0.04, z: 9}
+  - {x: -13, y: 0.04, z: 8}
+  - {x: -14, y: 0.04, z: 7}
+  - {x: -15, y: 0.04, z: 6}
+  - {x: -15, y: 0.04, z: 5}
+  - {x: -16, y: 0.04, z: 4}
+  - {x: -16, y: 0.04, z: 3}
+  - {x: -16, y: 0.04, z: 2}
+  - {x: -16, y: 0.04, z: 1}
+  - {x: -16, y: 0.04, z: 1}
+  - {x: -16, y: 0.04, z: 1}
+  - {x: -26, y: 0.04, z: 1}
+  - {x: -26, y: 0.04, z: 2}
+  - {x: -26, y: 0.04, z: 3}
+  - {x: -26, y: 0.04, z: 4}
+  - {x: -27, y: 0.04, z: 5}
+  - {x: -27, y: 0.04, z: 6}
+  - {x: -28, y: 0.04, z: 7}
+  - {x: -28, y: 0.04, z: 8}
+  - {x: -28, y: 0.04, z: 9}
+  - {x: -28, y: 0.04, z: 10}
+  - {x: -29, y: 0.04, z: 11}
+  - {x: -30, y: 0.04, z: 12}
+  - {x: -31, y: 0.04, z: 13}
+  - {x: -31, y: 0.04, z: 14}
+  - {x: -32, y: 0.04, z: 15}
+  - {x: -32, y: 0.04, z: 16}
+  - {x: -33, y: 0.04, z: 17}
+  - {x: -33, y: 0.04, z: 18}
+  - {x: -33, y: 0.04, z: 19}
   m_Parameters:
     serializedVersion: 3
     widthMultiplier: 0.03
