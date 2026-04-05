@@ -310,7 +310,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -0.2, y: 0.15, z: 0}
+  m_LocalPosition: {x: 41, y: 0.15, z: 18.28}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -400,7 +400,7 @@ MonoBehaviour:
   maxSteerRateDeg: 180
   steerDeadbandDeg: 0.2
   forceWheelZto90: 1
-  enableDebugLog: 1
+  enableDebugLog: 0
   testMode: 0
   testTorque: 1
   steerAngles:
@@ -435,10 +435,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: cf20428a007696847a62be7b347d0034, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 80905baefc827594b92ee96292ef9b6f, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MgneticTrackingAgentCar_V1.0_MoHu_ZL_NB_260331
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_NB_260404
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -466,7 +466,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -475,9 +475,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 1
+  enableDataCollection: 0
   recordDerailmentEpisodes: 0
-  enableMaxSamplesLimit: 1
+  enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
@@ -517,7 +517,7 @@ MonoBehaviour:
   lateralChangeRateDeadZone: 0.05
   angularChangeRatePenaltyCoeff: 1
   angularChangeRateDeadZone: 0.05
-  enableRewardTracking: 1
+  enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
@@ -530,9 +530,9 @@ MonoBehaviour:
   - {x: -0.2, y: 0.15, z: 0}
   - {x: 6.2, y: 0.15, z: 8.139}
   - {x: 9, y: 0.15, z: 8.139}
-  - {x: 23, y: 0.15, z: 12.2}
-  - {x: 28, y: 0.15, z: 12.2}
-  - {x: 41, y: 0.15, z: 17.941}
+  - {x: 23, y: 0.15, z: 12.339}
+  - {x: 28, y: 0.15, z: 12.339}
+  - {x: 41, y: 0.15, z: 18.28}
   spawnYawAngles:
   - 90
   - -90
@@ -614,7 +614,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
