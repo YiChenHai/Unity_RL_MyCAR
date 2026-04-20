@@ -438,7 +438,7 @@ MonoBehaviour:
   m_Model: {fileID: 5022602860645237092, guid: a5bddde83d49fe14e8c6d26330880943, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_NB_260404
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260417
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -466,7 +466,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -541,6 +541,10 @@ MonoBehaviour:
   - 90
   - -90
   randomYawRange: 8
+  enableYawCurriculum: 1
+  curriculumPhase1Steps: 3000000
+  curriculumPhase1MaxYaw: 3
+  curriculumPhase2SmallYawProb: 0.2
 --- !u!114 &714007409
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -614,7 +618,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 

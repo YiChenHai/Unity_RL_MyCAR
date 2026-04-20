@@ -164,6 +164,7 @@ public class MyCarAgent : Agent
     public bool IsAligned { get; private set; }          // 当前是否对齐
     public bool IsStableAligned => isStableAligned;      // 当前是否稳定对齐
     public float AlignedTimer => alignedTimer;           // 对齐计时器（秒）
+    public float EpisodeInitialYaw { get; private set; } // 当前回合初始偏航角（度）
     
     private System.Random spawnRng;             // 出生点随机数发生器（避免被Unity随机种子重置）
     private int sequentialSpawnIndex = 0;       // 顺序出生点索引（数据采集模式使用）
@@ -197,6 +198,25 @@ public class MyCarAgent : Agent
     };
     [Range(0f, 45f)]
     public float randomYawRange = 8f;  // 随机Y角度范围（±度数，叠加在基础角度上）
+
+    [Header("Fixed Yaw Override")]
+    [Tooltip("勾选后每回合使用固定偏航角出生（忽略随机和课程调度）")]
+    public bool useFixedYaw = false;
+    [Tooltip("固定偏航角（度数，叠加在出生点基础角度上）")]
+    [Range(-45f, 45f)]
+    public float fixedYawAngle = 0f;
+
+    [Header("Curriculum: Random Yaw Schedule")]
+    [Tooltip("是否启用课程学习式偏航角调度（按全局训练步数自动调整随机范围）")]
+    public bool enableYawCurriculum = true;
+    [Tooltip("第一阶段结束步数（之前使用小角度范围）")]
+    public int curriculumPhase1Steps = 3_000_000;
+    [Tooltip("第一阶段最大偏航角（±度数）")]
+    [Range(0f, 45f)]
+    public float curriculumPhase1MaxYaw = 3f;
+    [Tooltip("第二阶段中，小角度区间 [0, phase1MaxYaw] 的采样概率（剩余概率分配给大角度区间）")]
+    [Range(0f, 1f)]
+    public float curriculumPhase2SmallYawProb = 0.2f;
 
     // ===== Script defaults (used when preferInspectorValues == false) =====
     // 说明：Unity会序列化(保存)Inspector中的字段值；因此“脚本里写的初始化默认值”
@@ -333,8 +353,13 @@ public class MyCarAgent : Agent
         transform.position = selectedPosition;
         
         // ========== 随机Y角度（叠加在出生点的基础角度上） ==========
-        float randomYaw = Random.Range(-randomYawRange, randomYawRange);
+        float randomYaw = useFixedYaw
+            ? fixedYawAngle
+            : (enableYawCurriculum
+                ? GetCurriculumYaw()
+                : Random.Range(-randomYawRange, randomYawRange));
         float totalYaw = selectedYawAngle + randomYaw;
+        EpisodeInitialYaw = totalYaw;
         Quaternion randomRotation = startRot * Quaternion.Euler(0f, totalYaw, 0f);
         transform.rotation = randomRotation;
 
@@ -632,6 +657,47 @@ public class MyCarAgent : Agent
             }
             EndEpisode();
         }  
+    }
+
+    /// <summary>
+    /// 根据课程学习调度生成随机偏航角（±度数）。
+    /// Phase1（0 ~ curriculumPhase1Steps）：均匀采样 [0, phase1MaxYaw]
+    /// Phase2（之后）：以 curriculumPhase2SmallYawProb 概率采样 [0, phase1MaxYaw]，
+    ///                 以 (1-prob) 概率采样 (phase1MaxYaw, randomYawRange]，
+    ///                 最后随机取正负号。
+    /// </summary>
+    float GetCurriculumYaw()
+    {
+        long globalStep = Academy.Instance.TotalStepCount;
+        float phase1Max = Mathf.Min(curriculumPhase1MaxYaw, randomYawRange);
+        float absYaw;
+
+        if (globalStep < curriculumPhase1Steps)
+        {
+            absYaw = Random.Range(0f, phase1Max);
+        }
+        else
+        {
+            if (phase1Max >= randomYawRange)
+            {
+                absYaw = Random.Range(0f, randomYawRange);
+            }
+            else
+            {
+                float roll = Random.value;
+                if (roll < curriculumPhase2SmallYawProb)
+                {
+                    absYaw = Random.Range(0f, phase1Max);
+                }
+                else
+                {
+                    absYaw = Random.Range(phase1Max, randomYawRange);
+                }
+            }
+        }
+
+        float sign = (Random.value < 0.5f) ? -1f : 1f;
+        return sign * absYaw;
     }
 
     // 判断是否处于对齐状态

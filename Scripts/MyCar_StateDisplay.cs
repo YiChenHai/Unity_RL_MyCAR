@@ -244,6 +244,12 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUILayout.Label($"Yaw Rate: {yawRate:F1} deg/s | Position: ({transform.position.x:F2}, {transform.position.z:F2})", 
             GUILayout.Width(displaySize.x - 20));
 
+        if (myCarAgent != null)
+        {
+            GUILayout.Label($"本回合初始偏航角: {myCarAgent.EpisodeInitialYaw:F2}°", 
+                _diffStyle, GUILayout.Width(displaySize.x - 20));
+        }
+
         GUILayout.Space(10);
 
         // ========== 各轮子信息（绿色显示）==========
