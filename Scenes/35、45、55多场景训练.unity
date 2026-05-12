@@ -310,7 +310,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 41, y: 0.15, z: 18.28}
+  m_LocalPosition: {x: 41.5, y: 0.15, z: 18.28}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -435,10 +435,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: a5bddde83d49fe14e8c6d26330880943, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: 61fc4922bc56ffa4998831d82cf0343c, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260417
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260420
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -466,7 +466,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -475,9 +475,9 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 1
-  recordDerailmentEpisodes: 1
-  enableMaxSamplesLimit: 1
+  enableDataCollection: 0
+  recordDerailmentEpisodes: 0
+  enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   preferInspectorValues: 1
@@ -518,8 +518,8 @@ MonoBehaviour:
   angularChangeRatePenaltyCoeff: 1
   angularChangeRateDeadZone: 0.05
   enableRewardTracking: 0
-  enableDebugLog: 1
-  enableDerailmentLogging: 1
+  enableDebugLog: 0
+  enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.5
   maxDeltaLateralSpeed: 0.02
@@ -532,7 +532,7 @@ MonoBehaviour:
   - {x: 9, y: 0.15, z: 8.139}
   - {x: 23, y: 0.15, z: 12.339}
   - {x: 28, y: 0.15, z: 12.339}
-  - {x: 41, y: 0.15, z: 18.28}
+  - {x: 41.5, y: 0.15, z: 18.28}
   spawnYawAngles:
   - 90
   - -90
@@ -540,11 +540,14 @@ MonoBehaviour:
   - -90
   - 90
   - -90
-  randomYawRange: 8
-  enableYawCurriculum: 1
-  curriculumPhase1Steps: 3000000
-  curriculumPhase1MaxYaw: 3
-  curriculumPhase2SmallYawProb: 0.2
+  maxRandomYawAngle: 12
+  randomYawRange: 12
+  useFixedYaw: 1
+  fixedYawAngle: 12
+  enableYawCurriculum: 0
+  curriculumPhase1Steps: 1000000
+  curriculumPhase1MaxYaw: 5
+  curriculumPhase2SmallYawProb: 0.3
 --- !u!114 &714007409
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -618,7 +621,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 

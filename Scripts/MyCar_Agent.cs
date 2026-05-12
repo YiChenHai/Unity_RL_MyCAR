@@ -196,14 +196,17 @@ public class MyCarAgent : Agent
     { 
         0f 
     };
-    [Range(0f, 45f)]
-    public float randomYawRange = 8f;  // 随机Y角度范围（±度数，叠加在基础角度上）
+    [Tooltip("随机偏航角绝对值的上限（度数），所有随机/课程/固定偏航角都会被 clamp 到此范围内")]
+    [Range(0f, 180f)]
+    public float maxRandomYawAngle = 45f;
+
+    [Tooltip("随机Y角度范围（±度数，叠加在基础角度上），实际值不会超过 maxRandomYawAngle")]
+    public float randomYawRange = 8f;
 
     [Header("Fixed Yaw Override")]
     [Tooltip("勾选后每回合使用固定偏航角出生（忽略随机和课程调度）")]
     public bool useFixedYaw = false;
-    [Tooltip("固定偏航角（度数，叠加在出生点基础角度上）")]
-    [Range(-45f, 45f)]
+    [Tooltip("固定偏航角（度数，叠加在出生点基础角度上），实际值会被 clamp 到 ±maxRandomYawAngle")]
     public float fixedYawAngle = 0f;
 
     [Header("Curriculum: Random Yaw Schedule")]
@@ -211,8 +214,7 @@ public class MyCarAgent : Agent
     public bool enableYawCurriculum = true;
     [Tooltip("第一阶段结束步数（之前使用小角度范围）")]
     public int curriculumPhase1Steps = 3_000_000;
-    [Tooltip("第一阶段最大偏航角（±度数）")]
-    [Range(0f, 45f)]
+    [Tooltip("第一阶段最大偏航角（±度数），实际值不会超过 maxRandomYawAngle")]
     public float curriculumPhase1MaxYaw = 3f;
     [Tooltip("第二阶段中，小角度区间 [0, phase1MaxYaw] 的采样概率（剩余概率分配给大角度区间）")]
     [Range(0f, 1f)]
@@ -353,11 +355,12 @@ public class MyCarAgent : Agent
         transform.position = selectedPosition;
         
         // ========== 随机Y角度（叠加在出生点的基础角度上） ==========
+        float clampedYawRange = Mathf.Clamp(randomYawRange, 0f, maxRandomYawAngle);
         float randomYaw = useFixedYaw
-            ? fixedYawAngle
+            ? Mathf.Clamp(fixedYawAngle, -maxRandomYawAngle, maxRandomYawAngle)
             : (enableYawCurriculum
                 ? GetCurriculumYaw()
-                : Random.Range(-randomYawRange, randomYawRange));
+                : Random.Range(-clampedYawRange, clampedYawRange));
         float totalYaw = selectedYawAngle + randomYaw;
         EpisodeInitialYaw = totalYaw;
         Quaternion randomRotation = startRot * Quaternion.Euler(0f, totalYaw, 0f);
@@ -669,7 +672,8 @@ public class MyCarAgent : Agent
     float GetCurriculumYaw()
     {
         long globalStep = Academy.Instance.TotalStepCount;
-        float phase1Max = Mathf.Min(curriculumPhase1MaxYaw, randomYawRange);
+        float clampedYawRange = Mathf.Clamp(randomYawRange, 0f, maxRandomYawAngle);
+        float phase1Max = Mathf.Min(Mathf.Min(curriculumPhase1MaxYaw, maxRandomYawAngle), clampedYawRange);
         float absYaw;
 
         if (globalStep < curriculumPhase1Steps)
@@ -678,9 +682,9 @@ public class MyCarAgent : Agent
         }
         else
         {
-            if (phase1Max >= randomYawRange)
+            if (phase1Max >= clampedYawRange)
             {
-                absYaw = Random.Range(0f, randomYawRange);
+                absYaw = Random.Range(0f, clampedYawRange);
             }
             else
             {
@@ -691,7 +695,7 @@ public class MyCarAgent : Agent
                 }
                 else
                 {
-                    absYaw = Random.Range(phase1Max, randomYawRange);
+                    absYaw = Random.Range(phase1Max, clampedYawRange);
                 }
             }
         }
