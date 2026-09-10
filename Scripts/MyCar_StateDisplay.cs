@@ -27,6 +27,10 @@ public class MyCar_StateDisplay : MonoBehaviour
     public Vector2 incrementCurvePosition = new Vector2(930, 10);
     [Tooltip("增量曲线显示大小")]
     public Vector2 incrementCurveSize = new Vector2(400, 250);
+    [Tooltip("前后排差值曲线显示位置（默认在 Agent Output Curves 正下方）")]
+    public Vector2 sensorDiffCurvePosition = new Vector2(520, 310);
+    [Tooltip("前后排差值曲线显示大小")]
+    public Vector2 sensorDiffCurveSize = new Vector2(400, 200);
     
     [Header("Reward Display Settings")]
     [Tooltip("是否显示奖励信息")]
@@ -36,7 +40,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     [Tooltip("奖励信息显示大小")]
     public Vector2 rewardDisplaySize = new Vector2(500, 240);
     [Tooltip("奖励曲线显示位置")]
-    public Vector2 rewardCurvePosition = new Vector2(520, 270);
+    public Vector2 rewardCurvePosition = new Vector2(520, 560);
     [Tooltip("奖励曲线显示大小")]
     public Vector2 rewardCurveSize = new Vector2(400, 200);
 
@@ -51,7 +55,13 @@ public class MyCar_StateDisplay : MonoBehaviour
     private float[] _angularSpeedHistory;
     private float[] _deltaXHistory;
     private float[] _deltaWHistory;
+    private float[] _frontDiffHistory;
+    private float[] _rearDiffHistory;
     private int _historyIndex = 0;
+    private float _currentFrontDiffNorm;
+    private float _currentRearDiffNorm;
+    private float _currentFrontDiffRaw;
+    private float _currentRearDiffRaw;
 
     // 缓存 GUIStyle，避免每帧 new
     private GUIStyle _greenLabelStyle;
@@ -91,6 +101,8 @@ public class MyCar_StateDisplay : MonoBehaviour
         _angularSpeedHistory = new float[curveHistoryLength];
         _deltaXHistory = new float[curveHistoryLength];
         _deltaWHistory = new float[curveHistoryLength];
+        _frontDiffHistory = new float[curveHistoryLength];
+        _rearDiffHistory = new float[curveHistoryLength];
         
         // 初始化图例颜色纹理
         if (_cyanTexture == null)
@@ -222,6 +234,10 @@ public class MyCar_StateDisplay : MonoBehaviour
             // 记录输出增量（已经是归一化值 [-1, 1]）
             _deltaXHistory[_historyIndex] = myCarAgent.CurrentDeltaX;
             _deltaWHistory[_historyIndex] = myCarAgent.CurrentDeltaW;
+
+            // 记录前后排左右差值（按 maxField 归一化到 [-1, 1]）
+            UpdateSensorDiffHistory();
+
             _historyIndex = (_historyIndex + 1) % curveHistoryLength;
         }
 
@@ -399,6 +415,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         {
             DrawOutputCurves();
             DrawIncrementCurves();
+            DrawSensorDiffCurves();
         }
         
         // ========== 绘制奖励信息 ==========
@@ -407,6 +424,40 @@ public class MyCar_StateDisplay : MonoBehaviour
             DrawRewardComponents();
             DrawRewardCurve();
         }
+    }
+
+    /// <summary>
+    /// 更新前后排左右差值历史（与观测归一化方式一致）
+    /// </summary>
+    void UpdateSensorDiffHistory()
+    {
+        _currentFrontDiffRaw = 0f;
+        _currentRearDiffRaw = 0f;
+        _currentFrontDiffNorm = 0f;
+        _currentRearDiffNorm = 0f;
+
+        if (tape != null && sensors != null && sensors.Length == 6)
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                _sensorValues[i] = 0f;
+                if (sensors[i] != null)
+                {
+                    Vector3 mag = tape.GetMagneticField(sensors[i].position);
+                    _sensorValues[i] = mag.magnitude;
+                }
+            }
+
+            _currentFrontDiffRaw = _sensorValues[0] - _sensorValues[2];
+            _currentRearDiffRaw = _sensorValues[3] - _sensorValues[5];
+
+            float invMax = 1f / Mathf.Max(1e-9f, myCarAgent.maxField);
+            _currentFrontDiffNorm = Mathf.Clamp(_currentFrontDiffRaw * invMax, -1f, 1f);
+            _currentRearDiffNorm = Mathf.Clamp(_currentRearDiffRaw * invMax, -1f, 1f);
+        }
+
+        _frontDiffHistory[_historyIndex] = _currentFrontDiffNorm;
+        _rearDiffHistory[_historyIndex] = _currentRearDiffNorm;
     }
 
     /// <summary>
@@ -430,6 +481,54 @@ public class MyCar_StateDisplay : MonoBehaviour
         
         // 绘制网格和曲线
         DrawCurveGraph(innerRect);
+    }
+
+    /// <summary>
+    /// 绘制前排/后排左右差值曲线（位于 Agent Output Curves 正下方）
+    /// </summary>
+    void DrawSensorDiffCurves()
+    {
+        Vector2 pos = GetSensorDiffCurvePosition();
+        Rect curveRect = new Rect(pos.x, pos.y, sensorDiffCurveSize.x, sensorDiffCurveSize.y);
+
+        GUI.DrawTexture(curveRect, _bgTexture);
+        GUI.Box(curveRect, "Sensor LR Diff Curves");
+
+        DrawSensorDiffLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
+
+        Rect innerRect = new Rect(curveRect.x + 10, curveRect.y + 45, curveRect.width - 20, curveRect.height - 55);
+        DrawSensorDiffGraph(innerRect);
+    }
+
+    /// <summary>
+    /// 差值曲线默认紧贴 Agent Output Curves 下方（为其下方数值标签留出空间）
+    /// </summary>
+    Vector2 GetSensorDiffCurvePosition()
+    {
+        float stackedY = curveAreaPosition.y + curveAreaSize.y + 50f;
+        // 若 Inspector 位置仍与输出曲线重叠（旧场景默认值），则自动下移
+        if (Mathf.Abs(sensorDiffCurvePosition.x - curveAreaPosition.x) < 1f
+            && sensorDiffCurvePosition.y < stackedY)
+        {
+            return new Vector2(sensorDiffCurvePosition.x, stackedY);
+        }
+        return sensorDiffCurvePosition;
+    }
+
+    /// <summary>
+    /// 奖励曲线若与差值曲线同列重叠，则自动下移
+    /// </summary>
+    Vector2 GetRewardCurvePosition()
+    {
+        Vector2 sensorPos = GetSensorDiffCurvePosition();
+        float stackedY = sensorPos.y + sensorDiffCurveSize.y + 50f;
+        if (showOutputCurves
+            && Mathf.Abs(rewardCurvePosition.x - sensorPos.x) < 1f
+            && rewardCurvePosition.y < stackedY)
+        {
+            return new Vector2(rewardCurvePosition.x, stackedY);
+        }
+        return rewardCurvePosition;
     }
 
     /// <summary>
@@ -481,6 +580,22 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
         GUILayout.Label($"归一化 - 横向速度(Vx): {currentLateralNorm:F2} | 角速度(ω): {currentAngularNorm:F2}", _curveLabelStyle);
         GUILayout.Label($"真实值 - 横向速度(Vx): {currentLateralReal:F2} m/s | 角速度(ω): {currentAngularReal:F1} deg/s", _curveLabelStyle);
+        GUILayout.EndArea();
+    }
+
+    void DrawSensorDiffGraph(Rect graphRect)
+    {
+        DrawGraphGrid(graphRect);
+
+        DrawCurveLineWithColor(graphRect, _frontDiffHistory, Color.yellow, "Front Diff");
+        DrawCurveLineWithColor(graphRect, _rearDiffHistory, Color.green, "Rear Diff");
+
+        float labelX = graphRect.x + 10;
+        float labelY = graphRect.yMax + 5;
+
+        GUILayout.BeginArea(new Rect(labelX, labelY, 380, 50));
+        GUILayout.Label($"归一化 - 前排差值: {_currentFrontDiffNorm:F3} | 后排差值: {_currentRearDiffNorm:F3}", _curveLabelStyle);
+        GUILayout.Label($"原始值 - 前排差值: {_currentFrontDiffRaw:F3} | 后排差值: {_currentRearDiffRaw:F3}", _curveLabelStyle);
         GUILayout.EndArea();
     }
 
@@ -564,6 +679,15 @@ public class MyCar_StateDisplay : MonoBehaviour
         DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.yellow, "横向增量 (ΔVx)", _legendStyle);
         DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.green, "角速度增量 (Δω)", _legendStyle);
     }
+
+    /// <summary>
+    /// 绘制前后排差值曲线图例
+    /// </summary>
+    void DrawSensorDiffLegend(Rect legendRect)
+    {
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 160, 18), Color.yellow, "前排差值 (左-右)", _legendStyle);
+        DrawLegendItem(new Rect(legendRect.x + 170, legendRect.y, 160, 18), Color.green, "后排差值 (左-右)", _legendStyle);
+    }
     
     /// <summary>
     /// 绘制单个图例项（颜色块 + 文字）
@@ -577,6 +701,10 @@ public class MyCar_StateDisplay : MonoBehaviour
             colorTex = _cyanTexture;
         else if (color == Color.magenta && _magentaTexture != null)
             colorTex = _magentaTexture;
+        else if (color == Color.yellow && _yellowTexture != null)
+            colorTex = _yellowTexture;
+        else if (color == Color.green && _greenTexture != null)
+            colorTex = _greenTexture;
         
         if (colorTex != null)
             GUI.DrawTexture(colorRect, colorTex);
@@ -703,7 +831,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// </summary>
     void DrawRewardCurve()
     {
-        Rect curveRect = new Rect(rewardCurvePosition.x, rewardCurvePosition.y, rewardCurveSize.x, rewardCurveSize.y);
+        Vector2 pos = GetRewardCurvePosition();
+        Rect curveRect = new Rect(pos.x, pos.y, rewardCurveSize.x, rewardCurveSize.y);
         
         // 绘制背景
         GUI.DrawTexture(curveRect, _bgTexture);
