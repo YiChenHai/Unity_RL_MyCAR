@@ -89,6 +89,78 @@ public class MagneticTape : MonoBehaviour
     }
 
     /// <summary>
+    /// 水平面上，点到磁条折线的最近点、该段切线，以及带符号横向偏差。
+    /// 横向偏差：沿磁条前进方向看，点在右侧为正，单位 m。
+    /// </summary>
+    public bool TryGetHorizontalDeviation(Vector3 worldPos, out Vector3 closestWorld, out Vector3 tangentWorld, out float signedLateral)
+    {
+        closestWorld = worldPos;
+        tangentWorld = Vector3.forward;
+        signedLateral = 0f;
+
+        EnsurePoints();
+        if (points == null || points.Length < 2)
+            return false;
+
+        Vector3 p = worldPos;
+        p.y = 0f;
+        float bestDistSq = float.PositiveInfinity;
+        bool found = false;
+
+        for (int i = 0; i < points.Length - 1; i++)
+        {
+            Vector3 a = ToWorld(points[i]);
+            Vector3 b = ToWorld(points[i + 1]);
+            a.y = 0f;
+            b.y = 0f;
+            Vector3 ab = b - a;
+            float lenSq = ab.sqrMagnitude;
+            if (lenSq < 1e-10f)
+                continue;
+
+            float t = Mathf.Clamp01(Vector3.Dot(p - a, ab) / lenSq);
+            Vector3 c = a + ab * t;
+            float distSq = (p - c).sqrMagnitude;
+            if (distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                closestWorld = c;
+                tangentWorld = ab.normalized;
+                found = true;
+            }
+        }
+
+        if (!found)
+            return false;
+
+        // 切线右侧单位向量：T=(tx,0,tz) 时右向为 (tz, 0, -tx)
+        Vector3 right = new Vector3(tangentWorld.z, 0f, -tangentWorld.x);
+        signedLateral = Vector3.Dot(p - closestWorld, right);
+        return true;
+    }
+
+    void EnsurePoints()
+    {
+        if (line == null)
+            line = GetComponent<LineRenderer>();
+        if (line == null)
+        {
+            points = null;
+            return;
+        }
+        if (points == null || points.Length != line.positionCount)
+            points = new Vector3[line.positionCount];
+        line.GetPositions(points);
+    }
+
+    Vector3 ToWorld(Vector3 p)
+    {
+        if (line != null && line.useWorldSpace)
+            return p;
+        return transform.TransformPoint(p);
+    }
+
+    /// <summary>
     /// 获取磁场标量（用于可视化箭头）
     /// </summary>
     public float GetMagneticFieldScalar(Vector3 sensorPosition)

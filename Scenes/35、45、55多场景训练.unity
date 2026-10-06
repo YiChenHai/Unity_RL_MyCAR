@@ -294,6 +294,7 @@ GameObject:
   - component: {fileID: 714007409}
   - component: {fileID: 714007410}
   - component: {fileID: 714007411}
+  - component: {fileID: 714007412}
   m_Layer: 0
   m_Name: MyCar_Agent
   m_TagString: Untagged
@@ -580,6 +581,8 @@ MonoBehaviour:
   curveAreaSize: {x: 400, y: 250}
   incrementCurvePosition: {x: 930, y: 10}
   incrementCurveSize: {x: 400, y: 250}
+  sensorDiffCurvePosition: {x: 520, y: 310}
+  sensorDiffCurveSize: {x: 400, y: 200}
   showRewardInfo: 0
   rewardDisplayPosition: {x: 10, y: 570}
   rewardDisplaySize: {x: 500, y: 200}
@@ -643,6 +646,25 @@ MonoBehaviour:
   smoothingAlpha: 1
   showDebugInfo: 1
   showSensorValues: 1
+--- !u!114 &714007412
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 714007401}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8c25c5c60fd780143a43efdaa8916ffe, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  enableRecording: 1
+  tape: {fileID: 1462255779}
+  frontCenterSensor: {fileID: 1988725124}
+  rearCenterSensor: {fileID: 1550834400}
+  saveDirectory: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\piancha
+  filePrefix: path_deviation
+  sampleInterval: 0
 --- !u!1 &751401902
 GameObject:
   m_ObjectHideFlags: 0
