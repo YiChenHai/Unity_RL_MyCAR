@@ -499,8 +499,8 @@ MonoBehaviour:
   maxEpisodeTime: 70
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.65
-  alignedAngularVelocityThresholdDeg: 15
-  alignedBonus: 2
+  alignedAngularVelocityThresholdDeg: 8
+  alignedBonus: 0.5
   speedHighPercent: 0.6
   speedLowPercent: 0.2
   speedPenalty: -2
@@ -508,24 +508,23 @@ MonoBehaviour:
   derailThresholdPercent: 0.18
   warningUpperThresholdPercent: 0.3
   warningPenaltyCoefficient: -4
-  alignedAngularPenalty: 0.8
-  alignedAngularDeadZone: 0.02
-  alignedAngularMaxPenaltyThreshold: 0.1
-  alignedLateralPenalty: 0.8
-  alignedLateralDeadZone: 0.1
+  alignedAngularPenalty: 2
+  alignedAngularDeadZone: 0.04
+  alignedAngularMaxPenaltyThreshold: 0.25
+  alignedLateralPenalty: 2
+  alignedLateralDeadZone: 0.05
   alignedLateralMaxPenaltyThreshold: 0.25
-  lateralChangeRatePenaltyCoeff: 1
-  lateralChangeRateDeadZone: 0.05
-  angularChangeRatePenaltyCoeff: 1
-  angularChangeRateDeadZone: 0.05
+  lateralChangeRatePenaltyCoeff: 1.5
+  lateralChangeRateDeadZone: 0.02
+  angularChangeRatePenaltyCoeff: 1.5
+  angularChangeRateDeadZone: 0.02
   enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  stableAlignedTime: 0.5
-  maxDeltaLateralSpeed: 0.02
-  maxDeltaOmegaDeg: 4
-  outputDecayFactor: 1
+  stableAlignedTime: 0.2
+  maxDeltaLateralSpeed: 0.04
+  maxDeltaOmegaDeg: 8
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: -0.2, y: 0.15, z: 0}
@@ -543,9 +542,9 @@ MonoBehaviour:
   - -90
   maxRandomYawAngle: 12
   randomYawRange: 12
-  useFixedYaw: 1
+  useFixedYaw: 0
   fixedYawAngle: 12
-  enableYawCurriculum: 0
+  enableYawCurriculum: 1
   curriculumPhase1Steps: 1000000
   curriculumPhase1MaxYaw: 5
   curriculumPhase2SmallYawProb: 0.3

@@ -101,8 +101,8 @@ INPUT_COLUMNS = {
 }
 
 OUTPUT_COLUMNS = {
-    'output_vx_norm': 11,     # 直接横向速度输出 [-1, 1]
-    'output_omega_norm': 12,  # 直接角速度输出 [-1, 1]
+    'output_vx_norm': 11,     # 变化率限制后的横向速度指令 [-1, 1]
+    'output_omega_norm': 12,  # 变化率限制后的角速度指令 [-1, 1]
 }
 
 VARIABLE_RANGES = {

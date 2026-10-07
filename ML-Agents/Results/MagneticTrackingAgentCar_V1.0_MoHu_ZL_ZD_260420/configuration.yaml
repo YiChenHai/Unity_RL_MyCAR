@@ -45,7 +45,7 @@ behaviors:
     self_play: null
     behavioral_cloning: null
 env_settings:
-  env_path: D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Output/MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260420
+  env_path: D:/XiaoYiFei/Project/Unity/XYF_Car_Test/Output/MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_2610062
   env_args: null
   base_port: 5005
   num_envs: 4

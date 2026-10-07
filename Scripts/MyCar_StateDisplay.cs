@@ -23,9 +23,9 @@ public class MyCar_StateDisplay : MonoBehaviour
     public int curveHistoryLength = 200;  // 曲线历史数据点数
     public Vector2 curveAreaPosition = new Vector2(520, 10);
     public Vector2 curveAreaSize = new Vector2(400, 250);
-    [Tooltip("增量曲线显示位置")]
+    [Tooltip("网络动作曲线显示位置")]
     public Vector2 incrementCurvePosition = new Vector2(930, 10);
-    [Tooltip("增量曲线显示大小")]
+    [Tooltip("网络动作曲线显示大小")]
     public Vector2 incrementCurveSize = new Vector2(400, 250);
     [Tooltip("前后排差值曲线显示位置（默认在 Agent Output Curves 正下方）")]
     public Vector2 sensorDiffCurvePosition = new Vector2(520, 310);
@@ -231,9 +231,9 @@ public class MyCar_StateDisplay : MonoBehaviour
             _angularSpeedHistory[_historyIndex] = myCarAgent.maxOmegaDeg > 0 
                 ? (myCarMotion.omega_input * Mathf.Rad2Deg / myCarAgent.maxOmegaDeg) 
                 : 0f;
-            // 记录输出增量（已经是归一化值 [-1, 1]）
-            _deltaXHistory[_historyIndex] = myCarAgent.CurrentDeltaX;
-            _deltaWHistory[_historyIndex] = myCarAgent.CurrentDeltaW;
+            // 记录本步网络原始动作（归一化 [-1, 1]，变化率限制前）
+            _deltaXHistory[_historyIndex] = myCarAgent.CurrentActionVx;
+            _deltaWHistory[_historyIndex] = myCarAgent.CurrentActionOmega;
 
             // 记录前后排左右差值（按 maxField 归一化到 [-1, 1]）
             UpdateSensorDiffHistory();
@@ -306,19 +306,18 @@ public class MyCar_StateDisplay : MonoBehaviour
             GUILayout.Label($"Agent Limits: ConstVz={myCarAgent.constantForwardSpeed:F2}m/s | MaxVx={myCarAgent.maxLateralSpeed:F2}m/s | MaxOmega={myCarAgent.maxOmegaDeg:F0}°/s", 
                 GUILayout.Width(displaySize.x - 20));
             
-            // 显示输出增量（归一化值）
             GUILayout.Space(5);
-            GUILayout.Label("═══ Agent Output Increments ═══", GUILayout.Width(displaySize.x - 20));
-            float deltaXNorm = myCarAgent.CurrentDeltaX;
-            float deltaWNorm = myCarAgent.CurrentDeltaW;
-            
-            // 计算实际增量值
-            float deltaXReal = deltaXNorm * myCarAgent.maxDeltaLateralSpeed;  // m/s
-            float deltaWReal = deltaWNorm * myCarAgent.maxDeltaOmegaDeg;      // deg/s
-            
-            GUILayout.Label($"归一化增量 - ΔVx: {deltaXNorm:F3} | Δω: {deltaWNorm:F3}", 
+            GUILayout.Label("═══ Agent Action ═══", GUILayout.Width(displaySize.x - 20));
+            float actionVxNorm = myCarAgent.CurrentActionVx;
+            float actionOmegaNorm = myCarAgent.CurrentActionOmega;
+            float actionVxReal = actionVxNorm * myCarAgent.maxLateralSpeed;
+            float actionOmegaReal = actionOmegaNorm * myCarAgent.maxOmegaDeg;
+
+            GUILayout.Label($"网络输出 - Vx: {actionVxNorm:F3} | ω: {actionOmegaNorm:F3}",
                 _diffStyle, GUILayout.Width(displaySize.x - 20));
-            GUILayout.Label($"实际增量 - ΔVx: {deltaXReal:F4} m/s | Δω: {deltaWReal:F2} deg/s", 
+            GUILayout.Label($"限幅前目标 - Vx: {actionVxReal:F3} m/s | ω: {actionOmegaReal:F2} deg/s",
+                _detailStyle, GUILayout.Width(displaySize.x - 20));
+            GUILayout.Label($"下发指令 - Vx: {myCarMotion.vx_input:F3} m/s | ω: {myCarMotion.omega_input * Mathf.Rad2Deg:F2} deg/s",
                 _detailStyle, GUILayout.Width(displaySize.x - 20));
         }
 
@@ -532,7 +531,7 @@ public class MyCar_StateDisplay : MonoBehaviour
     }
 
     /// <summary>
-    /// 绘制智能体输出增量曲线
+    /// 绘制网络原始动作曲线（变化率限制前）
     /// </summary>
     void DrawIncrementCurves()
     {
@@ -542,7 +541,7 @@ public class MyCar_StateDisplay : MonoBehaviour
         GUI.DrawTexture(curveRect, _bgTexture);
         
         // 绘制边框
-        GUI.Box(curveRect, "Agent Output Increments");
+        GUI.Box(curveRect, "Agent Action");
         
         // 绘制图例（在标题下方）
         DrawIncrementLegend(new Rect(curveRect.x + 10, curveRect.y + 25, curveRect.width - 20, 20));
@@ -601,27 +600,24 @@ public class MyCar_StateDisplay : MonoBehaviour
 
     void DrawIncrementGraph(Rect graphRect)
     {
-        // 获取当前增量值（已经是归一化值 [-1, 1]）
-        float currentDeltaXNorm = myCarAgent.CurrentDeltaX;
-        float currentDeltaWNorm = myCarAgent.CurrentDeltaW;
+        float currentActionVxNorm = myCarAgent.CurrentActionVx;
+        float currentActionOmegaNorm = myCarAgent.CurrentActionOmega;
         
         // 绘制坐标轴和网格
         DrawGraphGrid(graphRect);
         
-        // 绘制两条增量曲线
-        DrawCurveLineWithColor(graphRect, _deltaXHistory, Color.yellow, "ΔVx");
-        DrawCurveLineWithColor(graphRect, _deltaWHistory, Color.green, "Δω");
+        DrawCurveLineWithColor(graphRect, _deltaXHistory, Color.yellow, "Vx");
+        DrawCurveLineWithColor(graphRect, _deltaWHistory, Color.green, "ω");
         
         float labelX = graphRect.x + 10;
         float labelY = graphRect.yMax + 5;
 
-        // 计算实际增量值
-        float currentDeltaXReal = currentDeltaXNorm * myCarAgent.maxDeltaLateralSpeed;  // m/s
-        float currentDeltaWReal = currentDeltaWNorm * myCarAgent.maxDeltaOmegaDeg;      // deg/s
+        float currentActionVxReal = currentActionVxNorm * myCarAgent.maxLateralSpeed;
+        float currentActionOmegaReal = currentActionOmegaNorm * myCarAgent.maxOmegaDeg;
         
         GUILayout.BeginArea(new Rect(labelX, labelY, 360, 50));
-        GUILayout.Label($"归一化增量 - ΔVx: {currentDeltaXNorm:F3} | Δω: {currentDeltaWNorm:F3}", _curveLabelStyle);
-        GUILayout.Label($"实际增量 - ΔVx: {currentDeltaXReal:F4} m/s | Δω: {currentDeltaWReal:F2} deg/s", _curveLabelStyle);
+        GUILayout.Label($"网络输出 - Vx: {currentActionVxNorm:F3} | ω: {currentActionOmegaNorm:F3}", _curveLabelStyle);
+        GUILayout.Label($"限幅前目标 - Vx: {currentActionVxReal:F3} m/s | ω: {currentActionOmegaReal:F2} deg/s", _curveLabelStyle);
         GUILayout.EndArea();
     }
 
@@ -676,8 +672,8 @@ public class MyCar_StateDisplay : MonoBehaviour
     /// </summary>
     void DrawIncrementLegend(Rect legendRect)
     {
-        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.yellow, "横向增量 (ΔVx)", _legendStyle);
-        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.green, "角速度增量 (Δω)", _legendStyle);
+        DrawLegendItem(new Rect(legendRect.x, legendRect.y, 150, 18), Color.yellow, "横向指令 (Vx)", _legendStyle);
+        DrawLegendItem(new Rect(legendRect.x + 160, legendRect.y, 150, 18), Color.green, "角速度指令 (ω)", _legendStyle);
     }
 
     /// <summary>
@@ -805,7 +801,7 @@ public class MyCar_StateDisplay : MonoBehaviour
             _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
         
         _rewardLabelStyle.normal.textColor = Color.Lerp(Color.green, Color.red, components.straightOutputPenaltyPercent / 100f);
-        GUILayout.Label($"2. 直线输出限制: {components.straightOutputPenalty:F4} (惩罚: {components.straightOutputPenaltyPercent:F1}%)", 
+        GUILayout.Label($"2. 直线残余输出: {components.straightOutputPenalty:F4} (惩罚: {components.straightOutputPenaltyPercent:F1}%)", 
             _rewardLabelStyle, GUILayout.Width(rewardRect.width - 20));
         
         _rewardLabelStyle.normal.textColor = components.velocityChangeRatePenalty < 0 ? Color.red : Color.green;
