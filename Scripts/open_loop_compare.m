@@ -1,12 +1,7 @@
-function summary = open_loop_compare(dataPaths, varargin)
-% OPEN_LOOP_COMPARE 开环输出逼近：把 PPO 采集 CSV 的四维磁特征送入 FuzzyController，
+% 开环输出逼近：把 PPO 采集 CSV 的四维磁特征送入 FuzzyController，
 % 与 CSV 中的 output_vx_norm、output_omega_norm 对比。
 %
-% 用法:
-%   open_loop_compare({'a.csv', 'b.csv', 'c.csv'})
-%   open_loop_compare('<放有这些csv的文件夹>')
-%   open_loop_compare(dataPaths, 'fuzzy', 'FuzzyController.cs 路径', 'out', '输出目录')
-%   命令行: matlab -batch "open_loop_compare('D:/data')"
+% 用法：修改下方“参数配置”中的路径，然后直接运行本脚本（F5）。
 %
 % CSV 需含列:
 %   front_lr_diff, rear_lr_diff, front_center, rear_center,
@@ -14,116 +9,122 @@ function summary = open_loop_compare(dataPaths, varargin)
 %
 % 主指标使用规则加权平均（不含低置信度恢复），对应“规则库逼近教师输出”。
 % 同时给出含恢复混合的部署输出，便于和车上实际 FuzzyController.Evaluate 对照。
+% 需要 MATLAB R2018b 及以上。
 
-    INPUT_COLS = {'front_lr_diff', 'rear_lr_diff', 'front_center', 'rear_center'};
-    TEACHER_COLS = {'output_vx_norm', 'output_omega_norm'};
+clear; clc; close all;
 
-    here = fileparts(mfilename('fullpath'));
-    p = inputParser;
-    p.addRequired('dataPaths');
-    p.addParameter('fuzzy', fullfile(here, 'FuzzyController.cs'));
-    p.addParameter('out', '');
-    p.parse(dataPaths, varargin{:});
-    fuzzyPath = char(p.Results.fuzzy);
-    outDir = char(p.Results.out);
-    dataPaths = cellstr(dataPaths);
+%% ===================== 参数配置 =====================
+% 一个或多个 PPO 采集 csv，或这些 csv 所在的文件夹（只填一个文件夹即可）
+dataPaths = {
+    'D:/XiaoYiFei/Data/open_loop'
+};
+% FuzzyController.cs 路径，留空则使用本脚本同目录下的 FuzzyController.cs
+fuzzyPath = '';
+% 结果输出目录，留空则写到数据旁边的 open_loop_out
+outDir = '';
+%% ====================================================
 
-    if ~isfile(fuzzyPath)
-        error('找不到规则库文件: %s', fuzzyPath);
+INPUT_COLS = {'front_lr_diff', 'rear_lr_diff', 'front_center', 'rear_center'};
+TEACHER_COLS = {'output_vx_norm', 'output_omega_norm'};
+
+if isempty(fuzzyPath)
+    fuzzyPath = fullfile(fileparts(mfilename('fullpath')), 'FuzzyController.cs');
+end
+if ~isfile(fuzzyPath)
+    error('找不到规则库文件: %s', fuzzyPath);
+end
+[mf, rules] = load_fuzzy(fuzzyPath);
+fprintf('已加载规则库: %d 条规则, %s\n', size(rules, 1), fuzzyPath);
+
+csvs = collect_csvs(dataPaths);
+if isempty(csvs)
+    error('没有找到 csv: %s', strjoin(dataPaths, ', '));
+end
+
+if isempty(outDir)
+    if numel(dataPaths) == 1 && isfolder(dataPaths{1})
+        outDir = fullfile(dataPaths{1}, 'open_loop_out');
+    else
+        outDir = fullfile(fileparts(get_abs_path(csvs{1})), 'open_loop_out');
     end
-    [mf, rules] = load_fuzzy(fuzzyPath);
-    fprintf('已加载规则库: %d 条规则, %s\n', size(rules, 1), fuzzyPath);
+end
+if ~isfolder(outDir)
+    mkdir(outDir);
+end
 
-    csvs = collect_csvs(dataPaths);
-    if isempty(csvs)
-        error('没有找到 csv: %s', strjoin(dataPaths, ', '));
+setup_font();
+rows = struct([]);
+allTvx = {}; allFvx = {}; allTw = {}; allFw = {};
+
+for k = 1:numel(csvs)
+    csvFile = csvs{k};
+    [~, name, ext] = fileparts(csvFile);
+    data = load_teacher_csv(csvFile, [INPUT_COLS, TEACHER_COLS]);
+    if isempty(data)
+        fprintf('跳过（不是蒸馏记录格式）: %s%s\n', name, ext);
+        continue;
     end
+    front = data(:, 1);
+    rear = data(:, 2);
+    fc = data(:, 3);
+    rc = data(:, 4);
+    tvx = data(:, 5);
+    tw = data(:, 6);
+    [fvx, fw] = evaluate_batch(front, rear, fc, rc, mf, rules, false);
+    [dvx, dw] = evaluate_batch(front, rear, fc, rc, mf, rules, true);
 
-    if isempty(outDir)
-        if numel(dataPaths) == 1 && isfolder(dataPaths{1})
-            outDir = fullfile(dataPaths{1}, 'open_loop_out');
-        else
-            outDir = fullfile(fileparts(get_abs_path(csvs{1})), 'open_loop_out');
-        end
-    end
-    if ~isfolder(outDir)
-        mkdir(outDir);
-    end
-
-    setup_font();
-    rows = struct([]);
-    allTvx = {}; allFvx = {}; allTw = {}; allFw = {};
-
-    for k = 1:numel(csvs)
-        path = csvs{k};
-        [~, name, ext] = fileparts(path);
-        data = load_teacher_csv(path, [INPUT_COLS, TEACHER_COLS]);
-        if isempty(data)
-            fprintf('跳过（不是蒸馏记录格式）: %s%s\n', name, ext);
-            continue;
-        end
-        front = data(:, 1);
-        rear = data(:, 2);
-        fc = data(:, 3);
-        rc = data(:, 4);
-        tvx = data(:, 5);
-        tw = data(:, 6);
-        [fvx, fw] = evaluate_batch(front, rear, fc, rc, mf, rules, false);
-        [dvx, dw] = evaluate_batch(front, rear, fc, rc, mf, rules, true);
-
-        [maeVx, rmseVx, p95Vx, maxVx] = metrics(tvx, fvx);
-        [maeW, rmseW, p95W, maxW] = metrics(tw, fw);
-        [maeVxD, rmseVxD] = metrics(tvx, dvx);
-        [maeWD, rmseWD] = metrics(tw, dw);
-
-        row = make_row(name, numel(tvx), maeVx, rmseVx, p95Vx, maxVx, ...
-                       maeW, rmseW, p95W, maxW, maeVxD, rmseVxD, maeWD, rmseWD);
-        rows = [rows, row]; %#ok<AGROW>
-        allTvx{end + 1} = tvx; %#ok<AGROW>
-        allFvx{end + 1} = fvx; %#ok<AGROW>
-        allTw{end + 1} = tw; %#ok<AGROW>
-        allFw{end + 1} = fw; %#ok<AGROW>
-        plot_series(tvx, fvx, tw, fw, fullfile(outDir, [name '_series.png']), ...
-                    [name ' 开环输出'], 4000);
-        fprintf('%s: N=%d  RMSE(vx)=%.4f  MAE(vx)=%.4f  RMSE(w)=%.4f  MAE(w)=%.4f\n', ...
-                name, numel(tvx), rmseVx, maeVx, rmseW, maeW);
-    end
-
-    if isempty(rows)
-        error('没有可用的蒸馏 CSV。需要含 output_vx_norm 与四维磁特征列。');
-    end
-
-    tvx = vertcat(allTvx{:});
-    fvx = vertcat(allFvx{:});
-    tw = vertcat(allTw{:});
-    fw = vertcat(allFw{:});
     [maeVx, rmseVx, p95Vx, maxVx] = metrics(tvx, fvx);
     [maeW, rmseW, p95W, maxW] = metrics(tw, fw);
-    perFile = rows;
-    rows = [rows, make_row('ALL', numel(tvx), maeVx, rmseVx, p95Vx, maxVx, ...
-                           maeW, rmseW, p95W, maxW, NaN, NaN, NaN, NaN)];
-    summary = struct2table(rows);
+    [maeVxD, rmseVxD] = metrics(tvx, dvx);
+    [maeWD, rmseWD] = metrics(tw, dw);
 
-    csvPath = fullfile(outDir, 'open_loop_summary.csv');
-    write_summary(rows, csvPath);
-
-    plot_scatter(tvx, fvx, tw, fw, fullfile(outDir, 'open_loop_scatter.png'), ...
-                 '开环输出散点（规则加权平均）');
-    plot_summary_bars(perFile, fullfile(outDir, 'open_loop_bars.png'));
-
-    fprintf('\n开环逼近（规则加权平均，不含低置信度恢复）\n');
-    fprintf('%-28s %8s %8s %8s %8s %8s\n', 'File', 'N', 'RMSEvx', 'MAEvx', 'RMSEw', 'MAEw');
-    for k = 1:numel(rows)
-        r = rows(k);
-        fprintf('%-28s %8d %8.4f %8.4f %8.4f %8.4f\n', r.file, r.n, ...
-                r.rmse_vx, r.mae_vx, r.rmse_omega, r.mae_omega);
-    end
-    fprintf('\n汇总表: %s\n', csvPath);
-    fprintf('散点图: %s\n', fullfile(outDir, 'open_loop_scatter.png'));
-    fprintf('柱状图: %s\n', fullfile(outDir, 'open_loop_bars.png'));
-    fprintf('各文件时序图: <文件名>_series.png\n');
-    fprintf('论文主指标用 RMSEvx / MAEvx / RMSEw / MAEw。with_recovery 列是部署时含恢复混合的误差。\n');
+    row = make_row(name, numel(tvx), maeVx, rmseVx, p95Vx, maxVx, ...
+                   maeW, rmseW, p95W, maxW, maeVxD, rmseVxD, maeWD, rmseWD);
+    rows = [rows, row]; %#ok<AGROW>
+    allTvx{end + 1} = tvx; %#ok<SAGROW>
+    allFvx{end + 1} = fvx; %#ok<SAGROW>
+    allTw{end + 1} = tw; %#ok<SAGROW>
+    allFw{end + 1} = fw; %#ok<SAGROW>
+    plot_series(tvx, fvx, tw, fw, fullfile(outDir, [name '_series.png']), ...
+                [name ' 开环输出'], 4000);
+    fprintf('%s: N=%d  RMSE(vx)=%.4f  MAE(vx)=%.4f  RMSE(w)=%.4f  MAE(w)=%.4f\n', ...
+            name, numel(tvx), rmseVx, maeVx, rmseW, maeW);
 end
+
+if isempty(rows)
+    error('没有可用的蒸馏 CSV。需要含 output_vx_norm 与四维磁特征列。');
+end
+
+tvx = vertcat(allTvx{:});
+fvx = vertcat(allFvx{:});
+tw = vertcat(allTw{:});
+fw = vertcat(allFw{:});
+[maeVx, rmseVx, p95Vx, maxVx] = metrics(tvx, fvx);
+[maeW, rmseW, p95W, maxW] = metrics(tw, fw);
+perFile = rows;
+rows = [rows, make_row('ALL', numel(tvx), maeVx, rmseVx, p95Vx, maxVx, ...
+                       maeW, rmseW, p95W, maxW, NaN, NaN, NaN, NaN)];
+summary = struct2table(rows);
+
+csvPath = fullfile(outDir, 'open_loop_summary.csv');
+write_summary(rows, csvPath);
+
+plot_scatter(tvx, fvx, tw, fw, fullfile(outDir, 'open_loop_scatter.png'), ...
+             '开环输出散点（规则加权平均）');
+plot_summary_bars(perFile, fullfile(outDir, 'open_loop_bars.png'));
+
+fprintf('\n开环逼近（规则加权平均，不含低置信度恢复）\n');
+fprintf('%-28s %8s %8s %8s %8s %8s\n', 'File', 'N', 'RMSEvx', 'MAEvx', 'RMSEw', 'MAEw');
+for k = 1:numel(rows)
+    r = rows(k);
+    fprintf('%-28s %8d %8.4f %8.4f %8.4f %8.4f\n', r.file, r.n, ...
+            r.rmse_vx, r.mae_vx, r.rmse_omega, r.mae_omega);
+end
+fprintf('\n汇总表: %s\n', csvPath);
+fprintf('散点图: %s\n', fullfile(outDir, 'open_loop_scatter.png'));
+fprintf('柱状图: %s\n', fullfile(outDir, 'open_loop_bars.png'));
+fprintf('各文件时序图: <文件名>_series.png\n');
+fprintf('论文主指标用 RMSEvx / MAEvx / RMSEw / MAEw。with_recovery 列是部署时含恢复混合的误差。\n');
 
 
 function nums = extract_block(text, name)

@@ -1,5 +1,5 @@
 behaviors:
-  MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260420:
+  MagneticTrackingAgentCar_V1.0_1m:
     trainer_type: ppo
     hyperparameters:
       batch_size: 2048
@@ -18,7 +18,7 @@ behaviors:
       extrinsic:
         gamma: 0.99
         strength: 1.0
-    max_steps: 6.0e6                   
+    max_steps: 3.0e6                   
     time_horizon: 512                   
     summary_freq: 5000
     checkpoint_interval: 50000
