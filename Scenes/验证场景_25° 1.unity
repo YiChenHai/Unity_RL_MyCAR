@@ -311,7 +311,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 0.5, y: 0.15, z: 0}
+  m_LocalPosition: {x: 0.5, y: 0.12, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -428,7 +428,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_BrainParameters:
     VectorObservationSize: 9
-    NumStackedVectorObservations: 1
+    NumStackedVectorObservations: 3
     m_ActionSpec:
       m_NumContinuousActions: 2
       BranchSizes: 
@@ -436,14 +436,14 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 61fc4922bc56ffa4998831d82cf0343c, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: ed98a497b38ec9849b2200b99960c2da, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_ZD_260420
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_PRO_261012
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
-  m_DeterministicInference: 0
+  m_DeterministicInference: 1
   m_ObservableAttributeHandling: 0
 --- !u!114 &714007407
 MonoBehaviour:
@@ -467,7 +467,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -476,7 +476,7 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 0
+  enableDataCollection: 1
   recordDerailmentEpisodes: 0
   enableMaxSamplesLimit: 0
   maxDataSamples: 300000
@@ -493,8 +493,8 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.2
-  maxOmegaDeg: 30
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 45
   maxField: 8
   maxEpisodeTime: 70
   alignedThresholdPercent: 0.1
@@ -518,17 +518,24 @@ MonoBehaviour:
   lateralChangeRateDeadZone: 0.05
   angularChangeRatePenaltyCoeff: 1
   angularChangeRateDeadZone: 0.05
+  useRewardV2: 0
+  trackingSigma: 0.15
+  nearLineDampingCoeff: 0.5
+  nearLineDampingRange: 0.5
+  diffRateScale: 1
+  headingErrorPenaltyCoeff: 0.3
+  actionDeltaPenaltyCoeff: 0.25
   enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.5
-  maxDeltaLateralSpeed: 0.02
-  maxDeltaOmegaDeg: 4
+  maxDeltaLateralSpeed: 0.04
+  maxDeltaOmegaDeg: 6
   outputDecayFactor: 1
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: 0.5, y: 0.15, z: 0}
+  - {x: 0.5, y: 0.12, z: 0}
   spawnYawAngles:
   - 90
   maxRandomYawAngle: 12
@@ -601,10 +608,10 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.1
-  maxOmegaDeg: 120
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 45
   maxField: 8
-  smoothingAlpha: 0.3
+  smoothingAlpha: 1
   showPredictedActions: 0
   showObservations: 0
 --- !u!114 &714007411
@@ -614,7 +621,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
@@ -630,8 +637,8 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.2
-  maxOmegaDeg: 30
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 45
   maxField: 8
   smoothingAlpha: 1
   showDebugInfo: 1
@@ -643,7 +650,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8c25c5c60fd780143a43efdaa8916ffe, type: 3}
   m_Name: 

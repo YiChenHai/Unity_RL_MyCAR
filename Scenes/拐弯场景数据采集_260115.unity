@@ -309,7 +309,7 @@ Transform:
   m_GameObject: {fileID: 714007401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 1, y: 0.156, z: 5}
+  m_LocalPosition: {x: 1, y: 0.12, z: 5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -438,7 +438,7 @@ MonoBehaviour:
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
-  m_DeterministicInference: 0
+  m_DeterministicInference: 1
   m_ObservableAttributeHandling: 0
 --- !u!114 &714007407
 MonoBehaviour:
@@ -514,10 +514,10 @@ MonoBehaviour:
   smoothingAlpha: 0.3
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: -4, y: 0.15, z: 2}
-  - {x: 1, y: 0.15, z: 5}
-  - {x: -2.5, y: 0.15, z: 2}
-  - {x: 1.5, y: 0.15, z: 5}
+  - {x: -4, y: 0.12, z: 2}
+  - {x: 1, y: 0.12, z: 5}
+  - {x: -2.5, y: 0.12, z: 2}
+  - {x: 1.5, y: 0.12, z: 5}
   spawnYawAngles:
   - 90
   - 90

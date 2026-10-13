@@ -113,6 +113,25 @@ public class MyCarAgent : Agent
     [Range(0f, 0.5f)]
     public float angularChangeRateDeadZone = 0.05f;
 
+    [Header("6. 奖励V2 (连续跟踪 + 全状态阻尼)")]
+    [Tooltip("勾选: 使用V2奖励（连续跟踪奖励 + 近线阻尼 + 航向误差惩罚 + 动作增量惩罚，替代第5项变化率惩罚）\n不勾选: 使用原奖励")]
+    public bool useRewardV2 = false;
+    [Tooltip("连续跟踪奖励宽度（归一化左右差）。r = exp(-(Df²+Dr²)/(2σ²))，0.15 约对应 1 cm 横向偏差")]
+    public float trackingSigma = 0.15f;
+    [Tooltip("近线阻尼系数：越靠近磁条，越惩罚左右差的变化速率（抑制冲过磁条的超调）")]
+    public float nearLineDampingCoeff = 0.5f;
+    [Tooltip("近线阻尼作用范围（归一化左右差）：前后左右差的较大值超过此值时不施加阻尼")]
+    public float nearLineDampingRange = 0.5f;
+    [Tooltip("左右差变化速率的归一化尺度（归一化左右差/秒），达到此速率时阻尼惩罚满额")]
+    public float diffRateScale = 1.0f;
+    [Tooltip("航向误差惩罚系数，航向误差取 |前排左右差 - 后排左右差|（归一化）")]
+    public float headingErrorPenaltyCoeff = 0.3f;
+    [Tooltip("动作增量惩罚系数：-k·(Δx² + Δw²)，Δ 为策略输出的 [-1,1] 增量")]
+    public float actionDeltaPenaltyCoeff = 0.25f;
+    private float prevFrontDiffNorm = 0f;
+    private float prevRearDiffNorm = 0f;
+    private bool hasPrevDiff = false;
+
     [Header("Reward Tracking (for Display)")]
     [Tooltip("是否启用奖励跟踪（用于UI显示）")]
     public bool enableRewardTracking = true;
@@ -128,7 +147,9 @@ public class MyCarAgent : Agent
         public float speedCoefficient;      // 速度系数
         public float straightOutputPenalty; // 直线输出限制惩罚
         public float straightOutputPenaltyPercent; // 直线输出惩罚百分比（0-100%）
-        public float velocityChangeRatePenalty; // 速度变化率惩罚
+        public float velocityChangeRatePenalty; // 速度变化率惩罚（V2下为动作增量惩罚）
+        public float dampingPenalty;       // V2 近线阻尼惩罚
+        public float headingPenalty;       // V2 航向误差惩罚
         public float warningPenalty;       // 预警区域惩罚（乘以dt后）
         public float totalReward;          // 总奖励（乘以dt前）
         public float rewardThisFrame;      // 本帧合计奖励（含预警惩罚，乘以dt后）
@@ -189,7 +210,7 @@ public class MyCarAgent : Agent
     [Tooltip("出生点位置数组")]
     public Vector3[] spawnPositions = new Vector3[] 
     { 
-        new Vector3(0f, 0.15f, 1f)
+        new Vector3(0f, 0.12f, 1f)
     };
     [Tooltip("对应的Y旋转角度数组（与spawnPositions保持相同长度）")]
     public float[] spawnYawAngles = new float[] 
@@ -346,7 +367,7 @@ public class MyCarAgent : Agent
         }
         Vector3 selectedPosition = spawnPositions.Length > spawnIndex 
             ? spawnPositions[spawnIndex]
-            : new Vector3(0f, 0.15f, 1f);
+            : new Vector3(0f, 0.12f, 1f);
         
         float selectedYawAngle = (spawnYawAngles.Length > spawnIndex && spawnPositions.Length > 0)
             ? spawnYawAngles[spawnIndex]
@@ -378,6 +399,7 @@ public class MyCarAgent : Agent
         CurrentDeltaW = 0f;
         prevAccumulatedLateralSpeed = 0f;
         prevAccumulatedAngularSpeed = 0f;
+        hasPrevDiff = false;
         
         // 重置奖励跟踪
         if (enableRewardTracking)
@@ -734,10 +756,34 @@ public class MyCarAgent : Agent
     {
         if (s == null || s.Length < 6) return -1f;
 
+        float invField = 1f / Mathf.Max(1e-6f, maxField);
+        float frontDiffNorm = (s[0] - s[2]) * invField;
+        float rearDiffNorm = (s[3] - s[5]) * invField;
+        float diffRate = 0f;
+        if (useRewardV2)
+        {
+            if (hasPrevDiff)
+            {
+                diffRate = (Mathf.Abs(frontDiffNorm - prevFrontDiffNorm) + Mathf.Abs(rearDiffNorm - prevRearDiffNorm))
+                           * 0.5f / Mathf.Max(1e-6f, Time.fixedDeltaTime);
+            }
+            prevFrontDiffNorm = frontDiffNorm;
+            prevRearDiffNorm = rearDiffNorm;
+            hasPrevDiff = true;
+        }
+
         // ========== 1. 计算基础对齐奖励 ==========
         float alignmentReward;
         
-        if (isAligned)
+        if (useRewardV2)
+        {
+            // 连续跟踪奖励：随前后左右差平滑下降；乘中心强度门控，避免远离磁条时左右差回落被误判为对齐
+            float sigma2 = Mathf.Max(1e-6f, 2f * trackingSigma * trackingSigma);
+            float tracking = Mathf.Exp(-(frontDiffNorm * frontDiffNorm + rearDiffNorm * rearDiffNorm) / sigma2);
+            float centerGate = Mathf.Clamp01(Mathf.Min(s[1], s[4]) / Mathf.Max(1e-6f, maxField * centerThresholdPercent));
+            alignmentReward = tracking * centerGate + (isAligned ? alignedBonus : 0f);
+        }
+        else if (isAligned)
         {
             // 对齐状态：给予全额奖励 + 额外奖励
             alignmentReward = 1.0f + alignedBonus;
@@ -869,7 +915,60 @@ public class MyCarAgent : Agent
             straightOutputPenaltyPercent = Mathf.Max(angularPenaltyPercent, lateralPenaltyPercent);
         }
 
-        // ========== 4. 速度变化率惩罚（全状态生效，横向/角速度独立计算） ==========
+        // ========== 4. 平稳性惩罚 ==========
+        float velocityChangeRatePenalty;
+        float dampingPenalty = 0f;
+        float headingPenalty = 0f;
+        if (useRewardV2)
+        {
+            // 4.V2-1 动作增量惩罚：直接作用于策略输出，替代原变化率惩罚
+            velocityChangeRatePenalty = -actionDeltaPenaltyCoeff
+                                        * (CurrentDeltaX * CurrentDeltaX + CurrentDeltaW * CurrentDeltaW);
+
+            // 4.V2-2 近线阻尼：越靠近磁条，越惩罚左右差变化速率；弯道中稳定跟踪时左右差基本不变，不受影响
+            float maxDiff = Mathf.Max(Mathf.Abs(frontDiffNorm), Mathf.Abs(rearDiffNorm));
+            float closeness = Mathf.Clamp01(1f - maxDiff / Mathf.Max(1e-6f, nearLineDampingRange));
+            dampingPenalty = -nearLineDampingCoeff * closeness
+                             * Mathf.Clamp01(diffRate / Mathf.Max(1e-6f, diffRateScale));
+
+            // 4.V2-3 航向误差：前后左右差同号为平移，异号为偏转
+            headingPenalty = -headingErrorPenaltyCoeff * Mathf.Clamp01(Mathf.Abs(frontDiffNorm - rearDiffNorm));
+        }
+        else
+        {
+            velocityChangeRatePenalty = ComputeChangeRatePenalty(outputVx, outputOmega);
+        }
+
+        // ========== 5. 最终奖励 ==========
+        float totalReward = alignmentReward * speedCoefficient
+                           + straightOutputPenalty
+                           + velocityChangeRatePenalty
+                           + dampingPenalty
+                           + headingPenalty;
+        
+        if (enableRewardTracking)
+        {
+            currentRewardComponents = new RewardComponents
+            {
+                alignmentReward = alignmentReward,
+                speedCoefficient = speedCoefficient,
+                straightOutputPenalty = straightOutputPenalty,
+                straightOutputPenaltyPercent = straightOutputPenaltyPercent,
+                velocityChangeRatePenalty = velocityChangeRatePenalty,
+                dampingPenalty = dampingPenalty,
+                headingPenalty = headingPenalty,
+                warningPenalty = 0f,  // 将在调用处设置
+                totalReward = totalReward,
+                rewardThisFrame = 0f  // 将在调用处设置
+            };
+        }
+        
+        return totalReward;
+    }
+
+    // 原奖励的速度变化率惩罚（全状态生效，横向/角速度独立计算）
+    float ComputeChangeRatePenalty(float outputVx, float outputOmega)
+    {
         // 4.1 横向速度变化率惩罚
         float lateralChangeRate = Mathf.Abs(outputVx - prevAccumulatedLateralSpeed) 
                                   / Mathf.Max(1e-6f, maxLateralSpeed);
@@ -906,29 +1005,7 @@ public class MyCarAgent : Agent
             }
         }
         
-        float velocityChangeRatePenalty = lateralCRPenalty + angularCRPenalty;
-
-        // ========== 5. 最终奖励 ==========
-        float totalReward = alignmentReward * speedCoefficient
-                           + straightOutputPenalty
-                           + velocityChangeRatePenalty;
-        
-        if (enableRewardTracking)
-        {
-            currentRewardComponents = new RewardComponents
-            {
-                alignmentReward = alignmentReward,
-                speedCoefficient = speedCoefficient,
-                straightOutputPenalty = straightOutputPenalty,
-                straightOutputPenaltyPercent = straightOutputPenaltyPercent,
-                velocityChangeRatePenalty = velocityChangeRatePenalty,
-                warningPenalty = 0f,  // 将在调用处设置
-                totalReward = totalReward,
-                rewardThisFrame = 0f  // 将在调用处设置
-            };
-        }
-        
-        return totalReward;
+        return lateralCRPenalty + angularCRPenalty;
     }
 
     // ========== 数据收集方法 ==========
