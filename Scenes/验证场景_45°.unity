@@ -534,7 +534,7 @@ MonoBehaviour:
   maxRandomYawAngle: 12
   randomYawRange: 12
   useFixedYaw: 1
-  fixedYawAngle: 0
+  fixedYawAngle: 18
   enableYawCurriculum: 0
   curriculumPhase1Steps: 1000000
   curriculumPhase1MaxYaw: 5
