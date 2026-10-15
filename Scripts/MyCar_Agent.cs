@@ -203,6 +203,82 @@ public class MyCarAgent : Agent
     private float prevAccumulatedLateralSpeed = 0f;   // 上一帧累积横向速度（用于计算变化率）
     private float prevAccumulatedAngularSpeed = 0f;  // 上一帧累积角速度（用于计算变化率）
 
+    public enum ActionMode { Incremental = 0, AbsoluteRateLimited = 1 }
+    public enum ObservationMode { Full9 = 0, Sensor4 = 1 }
+
+    [Header("Action / Observation Mode")]
+    [Tooltip("Incremental=动作为增量，输出由累积器积分得到（原方式）\nAbsoluteRateLimited=动作直接为目标输出[-1,1]，由环境按 maxDeltaLateralSpeed / maxDeltaOmegaDeg 每步限速\n（与 LabVIEW 中规则库输出 + 变化率限制器的结构一致）")]
+    public ActionMode actionMode = ActionMode.Incremental;
+    [Tooltip("Full9=4维传感器特征+累积输出+实际速度（9维）\nSensor4=只用4维传感器特征（与规则库输入一致）\n注意：Behavior Parameters 的 Vector Observation Size 必须同步为 9 或 4")]
+    public ObservationMode observationMode = ObservationMode.Full9;
+    [Tooltip("直接输出模式下，相邻两步目标值变化的惩罚系数：-k·(Δtx²+Δtw²)，抑制目标抖动，使蒸馏标签更平滑")]
+    public float targetChangePenaltyCoeff = 0.1f;
+    private float prevTargetVxNorm = 0f;
+    private float prevTargetOmegaNorm = 0f;
+    private bool hasPrevTarget = false;
+    private float currentTargetChangeSq = 0f;
+    public float CurrentTargetVxNorm { get; private set; }
+    public float CurrentTargetOmegaNorm { get; private set; }
+
+    [Header("Control Delay (域随机化)")]
+    [Tooltip("每回合在 [0, actionDelayMaxSteps] 中随机选取控制延迟步数（1步=Fixed Timestep），模拟实车通信与执行延迟；0=无延迟")]
+    [Range(0, 10)]
+    public int actionDelayMaxSteps = 0;
+    private Vector2[] delayBuffer;
+    private int delayHead = 0;
+    public int CurrentDelaySteps { get; private set; }
+
+    public enum KickMode { Lateral = 0, Yaw = 1, Both = 2, RandomOne = 3 }
+
+    [Header("Perturbation: Intermittent Kick (数据采集用，训练时保持关闭)")]
+    [Tooltip("间歇冲击：每隔一段随机时间，在下发给车辆的指令上叠加一个短时横向速度/角速度。\n只影响实际执行，不进入累积器，CSV 中记录的仍是策略原始输出。")]
+    public bool enableKick = false;
+    [Tooltip("训练分阶段：全局步数(Academy.TotalStepCount)达到此值后才开始施加冲击；0=立即生效")]
+    public int kickStartGlobalStep = 0;
+    [Tooltip("回合开始后多少秒内不施加冲击（秒）")]
+    public float kickStartDelay = 1.0f;
+    [Tooltip("两次冲击之间的最小间隔（秒，从上一次冲击结束算起）")]
+    public float kickIntervalMin = 3.0f;
+    [Tooltip("两次冲击之间的最大间隔（秒）")]
+    public float kickIntervalMax = 6.0f;
+    [Tooltip("单次冲击持续时间（秒）")]
+    public float kickDuration = 0.3f;
+    [Tooltip("冲击类型：Lateral=只横向，Yaw=只偏航，Both=同时，RandomOne=每次随机选横向或偏航")]
+    public KickMode kickMode = KickMode.RandomOne;
+    [Tooltip("横向冲击幅度范围（m/s），每次在 [min,max] 中均匀采样并随机正负")]
+    public Vector2 kickLateralSpeedRange = new Vector2(0.05f, 0.10f);
+    [Tooltip("偏航冲击幅度范围（deg/s），每次在 [min,max] 中均匀采样并随机正负")]
+    public Vector2 kickOmegaDegRange = new Vector2(8f, 15f);
+
+    [Header("Perturbation: Observation Noise (数据采集用，训练时保持关闭)")]
+    [Tooltip("观测噪声：对 6 路传感器读数叠加高斯噪声，观测和 CSV 记录使用同一份加噪读数；\n脱轨判定和奖励仍使用无噪声读数。")]
+    public bool enableObsNoise = false;
+    [Tooltip("训练分阶段：全局步数达到此值后才开始叠加观测噪声；0=立即生效")]
+    public int obsNoiseStartGlobalStep = 0;
+    [Tooltip("单路传感器噪声标准差（相对 maxField 的归一化值）。\n左右差为两路相减，其标准差约为该值的 1.41 倍")]
+    [Range(0f, 0.1f)]
+    public float obsNoiseStd = 0.01f;
+    [Tooltip("噪声时间相关系数 ρ（0=白噪声，越接近1噪声变化越慢）：n_t = ρ·n_{t-1} + sqrt(1-ρ²)·σ·ε")]
+    [Range(0f, 0.99f)]
+    public float obsNoiseCorrelation = 0f;
+
+    private System.Random perturbRng;
+    private float nextKickTime = 0f;
+    private float kickEndTime = -1f;
+    private float kickVx = 0f;          // m/s
+    private float kickOmegaRad = 0f;    // rad/s
+    private readonly float[] obsNoiseState = new float[6];
+    private readonly float[] cachedObsSensor = new float[6];
+    private bool hasCachedObsSensor = false;
+    private float lastKickEndTime = -1f;
+    private int currentSpawnIndex = 0;
+    private int startedEpisodeCount = 0;
+    private int derailEpisodeCount = 0;
+
+    public bool IsKickActive { get; private set; }
+    public float CurrentKickVx => IsKickActive ? kickVx : 0f;
+    public float CurrentKickOmegaDeg => IsKickActive ? kickOmegaRad * Mathf.Rad2Deg : 0f;
+
     [Header("Start pose")]
     public Quaternion startRot = Quaternion.Euler(0f, 0f, 0f);
     
@@ -285,10 +361,22 @@ public class MyCarAgent : Agent
         {
             spawnRng = new System.Random(System.Environment.TickCount ^ GetInstanceID());
         }
+        if (perturbRng == null)
+        {
+            perturbRng = new System.Random((System.Environment.TickCount * 31) ^ GetInstanceID());
+        }
 
         if (!preferInspectorValues)
         {
             ApplyScriptDefaults();
+        }
+
+        var behaviorParams = GetComponent<Unity.MLAgents.Policies.BehaviorParameters>();
+        int expectedObsSize = observationMode == ObservationMode.Sensor4 ? 4 : 9;
+        if (behaviorParams != null && behaviorParams.BrainParameters.VectorObservationSize != expectedObsSize)
+        {
+            Debug.LogError($"[MyCar_Agent] observationMode={observationMode} 需要 Vector Observation Size={expectedObsSize}，" +
+                           $"当前为 {behaviorParams.BrainParameters.VectorObservationSize}，请在 Behavior Parameters 中修改！");
         }
         
         // 初始化奖励历史数组
@@ -365,6 +453,8 @@ public class MyCarAgent : Agent
         {
             Debug.Log($"[Spawn] spawnPositions.Length={spawnPositions.Length}, spawnIndex={spawnIndex}");
         }
+        currentSpawnIndex = spawnIndex;
+        startedEpisodeCount++;
         Vector3 selectedPosition = spawnPositions.Length > spawnIndex 
             ? spawnPositions[spawnIndex]
             : new Vector3(0f, 0.12f, 1f);
@@ -400,6 +490,8 @@ public class MyCarAgent : Agent
         prevAccumulatedLateralSpeed = 0f;
         prevAccumulatedAngularSpeed = 0f;
         hasPrevDiff = false;
+
+        ResetPerturbations();
         
         // 重置奖励跟踪
         if (enableRewardTracking)
@@ -438,18 +530,16 @@ public class MyCarAgent : Agent
     public override void CollectObservations(VectorSensor sensor)
     {
         // obs[0-3]: 磁传感器派生特征（4维）
-        float[] rawSensor = new float[6];
-        int sensorCount = (sensors != null) ? Mathf.Min(sensors.Length, 6) : 0;
-        for (int i = 0; i < sensorCount; i++)
-        {
-            if (sensors[i] != null && tape != null)
-                rawSensor[i] = tape.GetMagneticField(sensors[i].position).magnitude;
-        }
+        float[] rawSensor = ReadObservedSensors();
+        System.Array.Copy(rawSensor, cachedObsSensor, 6);
+        hasCachedObsSensor = true;
         float invMax = 1f / Mathf.Max(1e-9f, maxField);
         sensor.AddObservation(Mathf.Clamp((rawSensor[0] - rawSensor[2]) * invMax, -1f, 1f)); // 前排左右差
         sensor.AddObservation(Mathf.Clamp((rawSensor[3] - rawSensor[5]) * invMax, -1f, 1f)); // 后排左右差
         sensor.AddObservation(Mathf.Clamp01(rawSensor[1] * invMax)); // 前中心
         sensor.AddObservation(Mathf.Clamp01(rawSensor[4] * invMax)); // 后中心
+
+        if (observationMode == ObservationMode.Sensor4) return;
 
         // obs[4-5]: 当前累积输出状态（归一化到 [-1, 1]）
         float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
@@ -467,13 +557,61 @@ public class MyCarAgent : Agent
 
     public override void OnActionReceived(ActionBuffers actions) 
     { 
-        // 连续动作：0=横向速度增量比例，1=自转速度增量比例（增量式输出）
-        float delta_x = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
-        float delta_w = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        // 连续动作：0=横向速度，1=自转角速度
+        //   Incremental：动作为增量比例；AbsoluteRateLimited：动作为目标输出（归一化）
+        float a0 = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
+        float a1 = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
+        float maxDeltaOmegaRad = maxDeltaOmegaDeg * Mathf.Deg2Rad;
+
+        float delta_x, delta_w;          // 本步实际输出变化（归一化到每步最大变化量）
+        float newAccLateral, newAccAngular;
+        float labelVxNorm, labelOmegaNorm;   // 写入 CSV 的规则库学习目标
+        if (actionMode == ActionMode.AbsoluteRateLimited)
+        {
+            CurrentTargetVxNorm = a0;
+            CurrentTargetOmegaNorm = a1;
+            currentTargetChangeSq = hasPrevTarget
+                ? (a0 - prevTargetVxNorm) * (a0 - prevTargetVxNorm) + (a1 - prevTargetOmegaNorm) * (a1 - prevTargetOmegaNorm)
+                : 0f;
+            prevTargetVxNorm = a0;
+            prevTargetOmegaNorm = a1;
+            hasPrevTarget = true;
+
+            float stepVx = Mathf.Clamp(a0 * maxLateralSpeed - accumulatedLateralSpeed, -maxDeltaLateralSpeed, maxDeltaLateralSpeed);
+            float stepW = Mathf.Clamp(a1 * maxOmegaRad - accumulatedAngularSpeed, -maxDeltaOmegaRad, maxDeltaOmegaRad);
+            delta_x = stepVx / Mathf.Max(1e-6f, maxDeltaLateralSpeed);
+            delta_w = stepW / Mathf.Max(1e-6f, maxDeltaOmegaRad);
+            newAccLateral = accumulatedLateralSpeed + stepVx;
+            newAccAngular = accumulatedAngularSpeed + stepW;
+            labelVxNorm = a0;
+            labelOmegaNorm = a1;
+        }
+        else
+        {
+            delta_x = a0;
+            delta_w = a1;
+            currentTargetChangeSq = 0f;
+            newAccLateral = accumulatedLateralSpeed;
+            newAccAngular = accumulatedAngularSpeed;
+            if (outputDecayFactor < 1f)
+            {
+                newAccLateral *= outputDecayFactor;
+                newAccAngular *= outputDecayFactor;
+            }
+            newAccLateral = Mathf.Clamp(newAccLateral + delta_x * maxDeltaLateralSpeed, -maxLateralSpeed, maxLateralSpeed);
+            newAccAngular = Mathf.Clamp(newAccAngular + delta_w * maxDeltaOmegaRad, -maxOmegaRad, maxOmegaRad);
+            labelVxNorm = Mathf.Clamp(newAccLateral / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f);
+            labelOmegaNorm = Mathf.Clamp(newAccAngular / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f);
+            CurrentTargetVxNorm = labelVxNorm;
+            CurrentTargetOmegaNorm = labelOmegaNorm;
+        }
         
         // 存储当前增量值（供外部访问）
         CurrentDeltaX = delta_x;
         CurrentDeltaW = delta_w;
+
+        UpdateKick(episodeTimer);
 
         // ========== 数据收集（如果启用） ==========
         if (enableDataCollection)
@@ -495,30 +633,18 @@ public class MyCarAgent : Agent
                 }
                 else
                 {
-                    RecordSample(delta_x, delta_w);
+                    RecordSample(delta_x, delta_w, labelVxNorm, labelOmegaNorm);
                 }
             }
             else
             {
-                RecordSample(delta_x, delta_w);
+                RecordSample(delta_x, delta_w, labelVxNorm, labelOmegaNorm);
             }
         }
 
-        // ========== 增量式输出：累积器 ==========
-        if (outputDecayFactor < 1f)
-        {
-            accumulatedLateralSpeed *= outputDecayFactor;
-            accumulatedAngularSpeed *= outputDecayFactor;
-        }
-        
-        float deltaLateral = delta_x * maxDeltaLateralSpeed;
-        float deltaAngular = delta_w * maxDeltaOmegaDeg * Mathf.Deg2Rad;
-        
-        float maxOmegaRad = maxOmegaDeg * Mathf.Deg2Rad;
-        accumulatedLateralSpeed = Mathf.Clamp(
-            accumulatedLateralSpeed + deltaLateral, -maxLateralSpeed, maxLateralSpeed);
-        accumulatedAngularSpeed = Mathf.Clamp(
-            accumulatedAngularSpeed + deltaAngular, -maxOmegaRad, maxOmegaRad);
+        // ========== 更新输出状态（增量累积 / 目标限速后的实际输出） ==========
+        accumulatedLateralSpeed = newAccLateral;
+        accumulatedAngularSpeed = newAccAngular;
 
         // 读取传感器数据
         float[] sensorValues = new float[6];
@@ -577,8 +703,11 @@ public class MyCarAgent : Agent
         // 映射到真实控制量（vz固定）
         float vz = constantForwardSpeed;  // 固定前进速度
 
-        // 下发给 MyCar_Motion 控制车辆
-        if (myCarMotion != null) myCarMotion.SetControl(vz, outputVx, outputOmega);
+        // 下发给 MyCar_Motion 控制车辆（先经过控制延迟；冲击作为外部扰动在执行端叠加，不改变累积器）
+        Vector2 delayedCmd = ApplyControlDelay(new Vector2(outputVx, outputOmega));
+        float appliedVx = delayedCmd.x + CurrentKickVx;
+        float appliedOmega = delayedCmd.y + (IsKickActive ? kickOmegaRad : 0f);
+        if (myCarMotion != null) myCarMotion.SetControl(vz, appliedVx, appliedOmega);
 
         // ========== 终止条件1：脱轨检测（立即判定） ==========
         float frontCenter = sensorValues[1];  // 前中
@@ -619,6 +748,18 @@ public class MyCarAgent : Agent
             
             // ========== 标记为脱轨终止 ==========
             episodeEndedByDerailment = true;
+            derailEpisodeCount++;
+
+            if (enableDataCollection || enableKick || enableObsNoise)
+            {
+                string kickInfo = IsKickActive
+                    ? $"冲击中(vx={CurrentKickVx:F2}m/s, ω={CurrentKickOmegaDeg:F1}°/s)"
+                    : (lastKickEndTime >= 0f ? $"距上次冲击结束 {episodeTimer - lastKickEndTime:F1}s" : "本回合尚未冲击");
+                Vector3 p = transform.position;
+                Debug.LogWarning($"[Derail] 出生点 S{currentSpawnIndex + 1} | t={episodeTimer:F1}s | 位置 ({p.x:F2}, {p.z:F2}) | {kickInfo} | 延迟 {CurrentDelaySteps} 步 | " +
+                                 $"前中={frontCenter / maxField:F2} 后中={rearCenter / maxField:F2} | " +
+                                 $"累计脱轨 {derailEpisodeCount}/{startedEpisodeCount} 回合 ({100f * derailEpisodeCount / Mathf.Max(1, startedEpisodeCount):F1}%)");
+            }
             
             // ========== 记录脱轨信息 ==========
             RecordDerailment(sensorValues, frontCenter, rearCenter, derailThresholdValue, delta_x, delta_w, outputVx, outputOmega);
@@ -938,6 +1079,10 @@ public class MyCarAgent : Agent
         {
             velocityChangeRatePenalty = ComputeChangeRatePenalty(outputVx, outputOmega);
         }
+        if (actionMode == ActionMode.AbsoluteRateLimited)
+        {
+            velocityChangeRatePenalty -= targetChangePenaltyCoeff * currentTargetChangeSq;
+        }
 
         // ========== 5. 最终奖励 ==========
         float totalReward = alignmentReward * speedCoefficient
@@ -1029,6 +1174,7 @@ public class MyCarAgent : Agent
     // ---- 直接动作（累积后归一化，用于模糊规则库）----
     //  [11] output_vx_norm    累积横向速度输出（归一化 [-1,1]，= accumulated_vx 更新后）
     //  [12] output_omega_norm 累积角速度输出（归一化 [-1,1]，= accumulated_omega 更新后）
+    //  注：AbsoluteRateLimited 模式下 [9-10] 为限速后的实际变化量，[11-12] 为策略给出的目标输出（未限速）
     //
     // ---- 6维原始传感器（用于需要完整传感器的分析）----
     //  [13] sensor_fl         前左传感器（归一化 [0,1]）
@@ -1038,19 +1184,25 @@ public class MyCarAgent : Agent
     //  [17] sensor_rc         后中传感器（归一化 [0,1]，同 [3]）
     //  [18] sensor_rr         后右传感器（归一化 [0,1]）
     //
+    // ---- 扰动信息（enableKick / enableObsNoise 用）----
+    //  [19] kick_active       本步是否处于间歇冲击中（0/1）
+    //  [20] kick_vx_norm      冲击横向速度（/maxLateralSpeed）
+    //  [21] kick_omega_norm   冲击角速度（/maxOmegaDeg）
+    //  注：开启观测噪声时，[0-3] 与 [13-18] 记录的是加噪后的读数（与策略观测一致）
+    //
     // 模糊规则库建立推荐使用列：
     //   输入: [0]front_lr_diff, [1]rear_lr_diff, [2]front_center, [3]rear_center
     //   输出: [11]output_vx_norm, [12]output_omega_norm
     //
-    private void RecordSample(float deltaX, float deltaW)
+    private void RecordSample(float deltaX, float deltaW, float outputVxNorm, float outputOmegaNorm)
     {
-        // ---- 读取 6 个原始传感器 ----
+        // ---- 读取 6 个原始传感器（与本步观测为同一份读数，含观测噪声）----
         float[] rawSensor = new float[6];
-        for (int i = 0; i < sensors.Length; i++)
-        {
-            if (sensors[i] != null && tape != null)
-                rawSensor[i] = tape.GetMagneticField(sensors[i].position).magnitude;
-        }
+        if (hasCachedObsSensor)
+            System.Array.Copy(cachedObsSensor, rawSensor, 6);
+        else
+            rawSensor = ReadObservedSensors();
+        hasCachedObsSensor = false;
         float invMax = 1f / Mathf.Max(1e-9f, maxField);
 
         // ---- 4 维派生特征 ----
@@ -1070,23 +1222,6 @@ public class MyCarAgent : Agent
         float actualVz    = Mathf.Clamp(localVel.z / Mathf.Max(0.001f, constantForwardSpeed), -2f, 2f);
         float actualVx    = Mathf.Clamp(localVel.x / Mathf.Max(0.001f, maxLateralSpeed), -2f, 2f);
         float actualOmega = Mathf.Clamp(angularVel / maxOmegaRad, -2f, 2f);
-
-        // ---- 计算增量执行后的累积输出（直接动作值）----
-        // 模拟增量累积后的结果（与 OnActionReceived 中的逻辑一致）
-        float newAccLateral = accumulatedLateralSpeed;
-        float newAccAngular = accumulatedAngularSpeed;
-        if (outputDecayFactor < 1f)
-        {
-            newAccLateral *= outputDecayFactor;
-            newAccAngular *= outputDecayFactor;
-        }
-        newAccLateral = Mathf.Clamp(
-            newAccLateral + deltaX * maxDeltaLateralSpeed, -maxLateralSpeed, maxLateralSpeed);
-        newAccAngular = Mathf.Clamp(
-            newAccAngular + deltaW * maxDeltaOmegaDeg * Mathf.Deg2Rad, -maxOmegaRad, maxOmegaRad);
-        
-        float outputVxNorm    = Mathf.Clamp(newAccLateral / Mathf.Max(0.001f, maxLateralSpeed), -1f, 1f);
-        float outputOmegaNorm = Mathf.Clamp(newAccAngular / Mathf.Max(0.001f, maxOmegaRad), -1f, 1f);
 
         // ---- 6 维原始传感器归一化 ----
         float sensorFL = Mathf.Clamp01(rawSensor[0] * invMax);
@@ -1120,9 +1255,142 @@ public class MyCarAgent : Agent
         sb.Append(sensorFR.ToString("F6")); sb.Append(",");
         sb.Append(sensorRL.ToString("F6")); sb.Append(",");
         sb.Append(sensorRC.ToString("F6")); sb.Append(",");
-        sb.Append(sensorRR.ToString("F6"));
+        sb.Append(sensorRR.ToString("F6")); sb.Append(",");
+        // 扰动信息 [19-21]
+        sb.Append(IsKickActive ? "1" : "0"); sb.Append(",");
+        sb.Append((CurrentKickVx / Mathf.Max(0.001f, maxLateralSpeed)).ToString("F6")); sb.Append(",");
+        sb.Append((CurrentKickOmegaDeg / Mathf.Max(0.001f, maxOmegaDeg)).ToString("F6"));
         
         collectedData.Add(sb.ToString());
+    }
+
+    private const string CsvHeader =
+        "front_lr_diff,rear_lr_diff,front_center,rear_center," +
+        "accumulated_vx,accumulated_omega," +
+        "actual_vz,actual_vx,actual_omega," +
+        "delta_x,delta_w," +
+        "output_vx_norm,output_omega_norm," +
+        "sensor_fl,sensor_fc,sensor_fr,sensor_rl,sensor_rc,sensor_rr," +
+        "kick_active,kick_vx_norm,kick_omega_norm";
+
+    // ========== 扰动（间歇冲击 / 观测噪声） ==========
+    private float[] ReadCleanSensors()
+    {
+        float[] values = new float[6];
+        int count = (sensors != null) ? Mathf.Min(sensors.Length, 6) : 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (sensors[i] != null && tape != null)
+                values[i] = tape.GetMagneticField(sensors[i].position).magnitude;
+        }
+        return values;
+    }
+
+    private float[] ReadObservedSensors()
+    {
+        float[] values = ReadCleanSensors();
+        if (!enableObsNoise || obsNoiseStd <= 0f || Academy.Instance.TotalStepCount < obsNoiseStartGlobalStep) return values;
+
+        float sigma = obsNoiseStd * maxField;
+        float rho = Mathf.Clamp(obsNoiseCorrelation, 0f, 0.99f);
+        float innov = Mathf.Sqrt(1f - rho * rho);
+        for (int i = 0; i < 6; i++)
+        {
+            obsNoiseState[i] = rho * obsNoiseState[i] + innov * sigma * NextGaussian();
+            values[i] = Mathf.Max(0f, values[i] + obsNoiseState[i]);
+        }
+        return values;
+    }
+
+    private float NextGaussian()
+    {
+        if (perturbRng == null) perturbRng = new System.Random((System.Environment.TickCount * 31) ^ GetInstanceID());
+        double u1 = 1.0 - perturbRng.NextDouble();
+        double u2 = perturbRng.NextDouble();
+        return (float)(System.Math.Sqrt(-2.0 * System.Math.Log(u1)) * System.Math.Cos(2.0 * System.Math.PI * u2));
+    }
+
+    private float RandomRange(float a, float b)
+    {
+        if (perturbRng == null) perturbRng = new System.Random((System.Environment.TickCount * 31) ^ GetInstanceID());
+        return a + (float)perturbRng.NextDouble() * (b - a);
+    }
+
+    private float RandomSign()
+    {
+        return RandomRange(0f, 1f) < 0.5f ? -1f : 1f;
+    }
+
+    private void ResetPerturbations()
+    {
+        System.Array.Clear(obsNoiseState, 0, obsNoiseState.Length);
+        hasCachedObsSensor = false;
+        IsKickActive = false;
+        kickVx = 0f;
+        kickOmegaRad = 0f;
+        kickEndTime = -1f;
+        lastKickEndTime = -1f;
+        nextKickTime = Mathf.Max(0f, kickStartDelay) + RandomRange(
+            Mathf.Max(0f, kickIntervalMin), Mathf.Max(kickIntervalMin, kickIntervalMax));
+
+        hasPrevTarget = false;
+        currentTargetChangeSq = 0f;
+        CurrentTargetVxNorm = 0f;
+        CurrentTargetOmegaNorm = 0f;
+
+        int maxDelay = Mathf.Max(0, actionDelayMaxSteps);
+        if (delayBuffer == null || delayBuffer.Length != maxDelay + 1)
+            delayBuffer = new Vector2[maxDelay + 1];
+        System.Array.Clear(delayBuffer, 0, delayBuffer.Length);
+        delayHead = 0;
+        CurrentDelaySteps = maxDelay > 0 ? (int)RandomRange(0f, maxDelay + 0.999f) : 0;
+    }
+
+    private Vector2 ApplyControlDelay(Vector2 cmd)
+    {
+        if (CurrentDelaySteps <= 0 || delayBuffer == null || delayBuffer.Length <= CurrentDelaySteps) return cmd;
+        delayBuffer[delayHead] = cmd;
+        int idx = (delayHead - CurrentDelaySteps + delayBuffer.Length) % delayBuffer.Length;
+        Vector2 delayed = delayBuffer[idx];
+        delayHead = (delayHead + 1) % delayBuffer.Length;
+        return delayed;
+    }
+
+    private void UpdateKick(float t)
+    {
+        if (!enableKick || Academy.Instance.TotalStepCount < kickStartGlobalStep)
+        {
+            IsKickActive = false;
+            return;
+        }
+
+        if (IsKickActive && t >= kickEndTime)
+        {
+            IsKickActive = false;
+            lastKickEndTime = t;
+            nextKickTime = t + RandomRange(Mathf.Max(0f, kickIntervalMin), Mathf.Max(kickIntervalMin, kickIntervalMax));
+        }
+
+        if (!IsKickActive && t >= nextKickTime)
+        {
+            bool lateral = kickMode == KickMode.Lateral || kickMode == KickMode.Both;
+            bool yaw = kickMode == KickMode.Yaw || kickMode == KickMode.Both;
+            if (kickMode == KickMode.RandomOne)
+            {
+                lateral = RandomRange(0f, 1f) < 0.5f;
+                yaw = !lateral;
+            }
+            kickVx = lateral
+                ? RandomSign() * RandomRange(Mathf.Min(kickLateralSpeedRange.x, kickLateralSpeedRange.y),
+                                             Mathf.Max(kickLateralSpeedRange.x, kickLateralSpeedRange.y))
+                : 0f;
+            kickOmegaRad = yaw
+                ? RandomSign() * RandomRange(Mathf.Min(kickOmegaDegRange.x, kickOmegaDegRange.y),
+                                             Mathf.Max(kickOmegaDegRange.x, kickOmegaDegRange.y)) * Mathf.Deg2Rad
+                : 0f;
+            kickEndTime = t + Mathf.Max(Time.fixedDeltaTime, kickDuration);
+            IsKickActive = true;
+        }
     }
 
     // 获取保存目录路径（如果用户指定了路径则使用，否则使用默认路径）
@@ -1194,13 +1462,7 @@ public class MyCarAgent : Agent
             // 如果文件不存在或未写入头部，先写入头部
             if (!File.Exists(episodeDataFilePath) || !episodeDataHeaderWritten)
             {
-                string header = "front_lr_diff,rear_lr_diff,front_center,rear_center," +
-                               "accumulated_vx,accumulated_omega," +
-                               "actual_vz,actual_vx,actual_omega," +
-                               "delta_x,delta_w," +
-                               "output_vx_norm,output_omega_norm," +
-                               "sensor_fl,sensor_fc,sensor_fr,sensor_rl,sensor_rc,sensor_rr";
-                File.WriteAllText(episodeDataFilePath, header + System.Environment.NewLine);
+                File.WriteAllText(episodeDataFilePath, CsvHeader + System.Environment.NewLine);
                 episodeDataHeaderWritten = true;
             }
 
@@ -1276,13 +1538,7 @@ public class MyCarAgent : Agent
         
         // 生成CSV头部
         List<string> csv = new List<string>();
-        string header = "front_lr_diff,rear_lr_diff,front_center,rear_center," +
-                       "accumulated_vx,accumulated_omega," +
-                       "actual_vz,actual_vx,actual_omega," +
-                       "delta_x,delta_w," +
-                       "output_vx_norm,output_omega_norm," +
-                       "sensor_fl,sensor_fc,sensor_fr,sensor_rl,sensor_rc,sensor_rr";
-        csv.Add(header);
+        csv.Add(CsvHeader);
         csv.AddRange(collectedData);
 
         // 写入文件

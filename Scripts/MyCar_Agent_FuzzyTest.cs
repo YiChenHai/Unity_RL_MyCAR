@@ -32,6 +32,19 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
     [Tooltip("输出平滑系数（0=无平滑，1=完全使用新值）\n建议0.3~0.5，值越小输出越平滑但响应越慢")]
     [Range(0.05f, 1f)]
     public float smoothingAlpha = 0.3f;
+
+    [Header("Rate Limiter（与 LabVIEW 变化率限制器一致）")]
+    [Tooltip("开启后在平滑之后按每步最大变化量限速（AbsoluteRateLimited 模式蒸馏的规则库应开启）")]
+    public bool enableRateLimiter = false;
+    [Tooltip("每个 FixedUpdate 横向速度最大变化量 m/s（= LabVIEW vxRateMax × dt）")]
+    public float maxDeltaLateralSpeed = 0.02f;
+    [Tooltip("每个 FixedUpdate 角速度最大变化量 deg/s（= LabVIEW omRateMax(deg) × dt）")]
+    public float maxDeltaOmegaDeg = 4f;
+
+    [Header("Control Delay（测试用）")]
+    [Tooltip("固定控制延迟步数，用于检验规则库对实车延迟的鲁棒性；0=无延迟")]
+    [Range(0, 10)]
+    public int controlDelaySteps = 0;
     
     [Header("Debug")]
     [Tooltip("显示模糊控制器输出")]
@@ -43,6 +56,10 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
     private float smoothedVx = 0f;
     private float smoothedOmega = 0f;
     private float maxOmegaRad;
+    private float limitedVx = 0f;
+    private float limitedOmega = 0f;
+    private Vector2[] delayBuffer;
+    private int delayHead = 0;
     
     void Start()
     {
@@ -92,11 +109,36 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
         // ========== 步骤4：输出平滑 ==========
         smoothedVx = Mathf.Lerp(smoothedVx, rawVx, smoothingAlpha);
         smoothedOmega = Mathf.Lerp(smoothedOmega, rawOmega, smoothingAlpha);
-        
-        // ========== 步骤5：下发控制 ==========
+
+        // ========== 步骤5：变化率限制 ==========
+        if (enableRateLimiter)
+        {
+            float dW = maxDeltaOmegaDeg * Mathf.Deg2Rad;
+            limitedVx += Mathf.Clamp(smoothedVx - limitedVx, -maxDeltaLateralSpeed, maxDeltaLateralSpeed);
+            limitedOmega += Mathf.Clamp(smoothedOmega - limitedOmega, -dW, dW);
+        }
+        else
+        {
+            limitedVx = smoothedVx;
+            limitedOmega = smoothedOmega;
+        }
+
+        // ========== 步骤6：控制延迟 + 下发控制 ==========
+        Vector2 cmd = new Vector2(limitedVx, limitedOmega);
+        if (controlDelaySteps > 0)
+        {
+            if (delayBuffer == null || delayBuffer.Length != controlDelaySteps + 1)
+            {
+                delayBuffer = new Vector2[controlDelaySteps + 1];
+                delayHead = 0;
+            }
+            delayBuffer[delayHead] = cmd;
+            cmd = delayBuffer[(delayHead + 1) % delayBuffer.Length];
+            delayHead = (delayHead + 1) % delayBuffer.Length;
+        }
         if (myCarMotion != null)
         {
-            myCarMotion.SetControl(constantForwardSpeed, smoothedVx, smoothedOmega);
+            myCarMotion.SetControl(constantForwardSpeed, cmd.x, cmd.y);
         }
         
         // 调试输出
@@ -119,5 +161,9 @@ public class MyCar_Agent_FuzzyTest : MonoBehaviour
         }
         smoothedVx = 0f;
         smoothedOmega = 0f;
+        limitedVx = 0f;
+        limitedOmega = 0f;
+        if (delayBuffer != null) System.Array.Clear(delayBuffer, 0, delayBuffer.Length);
+        delayHead = 0;
     }
 }
