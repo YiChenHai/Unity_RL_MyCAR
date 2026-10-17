@@ -427,8 +427,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 9
-    NumStackedVectorObservations: 3
+    VectorObservationSize: 4
+    NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
       BranchSizes: 
@@ -436,10 +436,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: ed98a497b38ec9849b2200b99960c2da, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: d6ea16031f7809247b7b1936c52d7c00, type: 3}
   m_InferenceDevice: 0
-  m_BehaviorType: 0
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_PRO_261012
+  m_BehaviorType: 2
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_RB_261014
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -476,8 +476,8 @@ MonoBehaviour:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
-  enableDataCollection: 0
-  recordDerailmentEpisodes: 0
+  enableDataCollection: 1
+  recordDerailmentEpisodes: 1
   enableMaxSamplesLimit: 0
   maxDataSamples: 300000
   customSavePath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
@@ -493,10 +493,10 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.4
-  maxOmegaDeg: 45
+  maxLateralSpeed: 0.2
+  maxOmegaDeg: 30
   maxField: 8
-  maxEpisodeTime: 70
+  maxEpisodeTime: 55
   alignedThresholdPercent: 0.1
   centerThresholdPercent: 0.65
   alignedAngularVelocityThresholdDeg: 15
@@ -530,9 +530,26 @@ MonoBehaviour:
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
   stableAlignedTime: 0.5
-  maxDeltaLateralSpeed: 0.04
-  maxDeltaOmegaDeg: 6
+  maxDeltaLateralSpeed: 0.02
+  maxDeltaOmegaDeg: 4
   outputDecayFactor: 1
+  actionMode: 1
+  observationMode: 1
+  targetChangePenaltyCoeff: 0.1
+  actionDelayMaxSteps: 0
+  enableKick: 0
+  kickStartGlobalStep: 0
+  kickStartDelay: 1
+  kickIntervalMin: 3
+  kickIntervalMax: 6
+  kickDuration: 0.3
+  kickMode: 3
+  kickLateralSpeedRange: {x: 0.05, y: 0.1}
+  kickOmegaDegRange: {x: 8, y: 15}
+  enableObsNoise: 0
+  obsNoiseStartGlobalStep: 0
+  obsNoiseStd: 0.015
+  obsNoiseCorrelation: 0
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
   - {x: 0.5, y: 0.12, z: 0}
@@ -608,8 +625,8 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.4
-  maxOmegaDeg: 45
+  maxLateralSpeed: 0.2
+  maxOmegaDeg: 30
   maxField: 8
   smoothingAlpha: 1
   showPredictedActions: 0
@@ -637,10 +654,14 @@ MonoBehaviour:
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
   constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.4
-  maxOmegaDeg: 45
+  maxLateralSpeed: 0.2
+  maxOmegaDeg: 30
   maxField: 8
   smoothingAlpha: 1
+  enableRateLimiter: 1
+  maxDeltaLateralSpeed: 0.02
+  maxDeltaOmegaDeg: 4
+  controlDelaySteps: 0
   showDebugInfo: 1
   showSensorValues: 1
 --- !u!114 &714007412
@@ -650,7 +671,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8c25c5c60fd780143a43efdaa8916ffe, type: 3}
   m_Name: 
@@ -660,7 +681,7 @@ MonoBehaviour:
   frontCenterSensor: {fileID: 1988725124}
   rearCenterSensor: {fileID: 1550834400}
   saveDirectory: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\piancha
-  filePrefix: path_deviation
+  filePrefix: ppo_70deg
   sampleInterval: 0
 --- !u!1 &751401902
 GameObject:

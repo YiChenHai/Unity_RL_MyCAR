@@ -59,7 +59,7 @@ function summary = open_loop_compare(dataPaths, varargin)
         [~, name, ext] = fileparts(path);
         data = load_teacher_csv(path, [INPUT_COLS, TEACHER_COLS]);
         if isempty(data)
-            fprintf('跳过（不是蒸馏记录格式）: %s%s\n', name, ext);
+            fprintf('跳过（列数不足 13 列）: %s%s\n', name, ext);
             continue;
         end
         front = data(:, 1);
@@ -280,13 +280,21 @@ function data = load_teacher_csv(path, cols)
     catch
         T = readtable(path);
     end
-    if ~all(ismember(cols, T.Properties.VariableNames))
-        data = [];
-        return;
-    end
+    % 不检查列名：有对应列名时按列名读取，否则按蒸馏记录的固定列位置读取
+    % （第 1-4 列为四维磁特征，第 12、13 列为 output_vx_norm、output_omega_norm）
+    FIXED_POS = [1, 2, 3, 4, 12, 13];
+    names = T.Properties.VariableNames;
     data = zeros(height(T), numel(cols));
     for k = 1:numel(cols)
-        v = T.(cols{k});
+        idx = find(strcmp(names, cols{k}), 1);
+        if isempty(idx)
+            idx = FIXED_POS(k);
+        end
+        if idx > width(T)
+            data = [];
+            return;
+        end
+        v = T{:, idx};
         if ~isnumeric(v)
             v = str2double(string(v));
         end
