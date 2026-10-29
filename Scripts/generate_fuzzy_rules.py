@@ -70,15 +70,19 @@ MIN_RULE_SUPPORT = 3
 # 最小规则强度（低于此值的规则被剪枝，即规则触发强度下限）
 MIN_RULE_STRENGTH = 0.01
 
-# 是否启用规则覆盖补全（推荐开启）
-# 用于修复“训练数据集中于直行，转弯规则缺失”的问题
-ENABLE_RULE_COMPLETION = False
+# 规则覆盖补全方式
+# "none"          = 不补全
+# "mirror"        = 仅对称镜像：前、后偏差强度同时取镜像，后件取反（推荐）
+# "mirror+extrap" = 对称镜像 + 偏差等级外推
+RULE_COMPLETION_MODE = "mirror"
+RULE_COMPLETION_MODES = ("none", "mirror", "mirror+extrap")
 
 # 规则补全后规则数上限（避免规则爆炸）
 RULE_COMPLETION_MAX_ADDED = 320
 
-# 镜像规则强度衰减系数（0~1）
-RULE_COMPLETION_MIRROR_STRENGTH_SCALE = 0.85
+# 镜像规则强度系数（0~1）：镜像规则权重 = 原规则权重 × 该系数
+# 隶属函数左右对称时，镜像前件覆盖的区域与原规则相同，取 1.0
+RULE_COMPLETION_MIRROR_STRENGTH_SCALE = 1.0
 
 # 严重偏差外推强度衰减系数（0~1）
 RULE_COMPLETION_EXTRAP_STRENGTH_SCALE = 0.70
@@ -120,6 +124,7 @@ FUZZY_SET_NAMES = {
     5: ['NB', 'NS', 'ZE', 'PS', 'PB'],            # 5集（对称）
     7: ['NB', 'NM', 'NS', 'ZE', 'PS', 'PM', 'PB'],  # 7集（对称）
     9: ['NB', 'NM', 'NS', 'NZ', 'ZE', 'PZ', 'PS', 'PM', 'PB'],
+    11: ['NVB', 'NB', 'NM', 'NS', 'NZ', 'ZE', 'PZ', 'PS', 'PM', 'PB', 'PVB'],
 }
 FUZZY_SET_NAMES_POSITIVE = {
     3: ['LO', 'ME', 'HI'],                        # 3集（正值）
@@ -588,10 +593,9 @@ class FuzzyRuleGenerator:
             neg_all = self._enforce_min_spacing(neg_all, neg_min_spacing, lo, zero_point)
             
             # --- 正半轴：[zero_point, ..., hi] ---
-            n_pos_total = n_sets - mid_idx  # 含 hi，不含 zero_point
-            n_pos_inner = n_pos_total - 1   # 不含边界 zero_point 和 hi
+            n_pos_inner = mid_idx - 1  # 不含边界 zero_point 和 hi，与负半轴对称
             pos_half_range = hi - zero_point
-            pos_equal_spacing = pos_half_range / (n_pos_total) if n_pos_total > 0 else pos_half_range
+            pos_equal_spacing = pos_half_range / mid_idx if mid_idx > 0 else pos_half_range
             pos_min_spacing = pos_equal_spacing * min_spacing_ratio
             
             if n_pos_inner > 0:
@@ -660,9 +664,10 @@ class FuzzyRuleGenerator:
         强制相邻MF中心之间至少有 min_spacing 的间距
         
         算法：
-          1. 将小于 min_spacing 的间距扩大到 min_spacing
-          2. 按比例缩放所有间距，使总和 = (hi - lo)
-          3. 若范围不足以容纳所有 min_spacing，回退到等间距
+          1. 将小于 min_spacing 的间距固定为 min_spacing
+          2. 剩余长度按原比例分配给其余间距，使总和 = (hi - lo)
+          3. 若分配后又有间距小于 min_spacing，将其一并固定，重复 2
+          4. 若范围不足以容纳所有 min_spacing，回退到等间距
         
         参数:
           centers: MF中心数组（已排序，首尾为边界）
@@ -683,16 +688,17 @@ class FuzzyRuleGenerator:
         if np.all(gaps >= min_spacing - 1e-9):
             return centers
         
-        # 将过小间距扩大到 min_spacing
-        clamped_gaps = np.maximum(gaps, min_spacing)
-        total_clamped = clamped_gaps.sum()
-        
-        if total_clamped < 1e-9:
-            # 退化情况：回退到等间距
-            return np.linspace(lo, hi, n)
-        
-        # 按比例缩放使总和 = total_range
-        clamped_gaps = clamped_gaps * (total_range / total_clamped)
+        fixed = gaps < min_spacing - 1e-9
+        while True:
+            remain = total_range - min_spacing * fixed.sum()
+            free_total = gaps[~fixed].sum()
+            if remain <= 1e-9 or free_total <= 1e-9:
+                return np.linspace(lo, hi, n)
+            clamped_gaps = np.where(fixed, min_spacing, gaps * (remain / free_total))
+            newly_small = (~fixed) & (clamped_gaps < min_spacing - 1e-9)
+            if not newly_small.any():
+                break
+            fixed |= newly_small
         
         # 从左到右重建中心位置
         new_centers = np.zeros(n)
@@ -992,9 +998,9 @@ class FuzzyRuleGenerator:
     # ===== Wang-Mendel 规则提取 =====
     
     def extract_rules(self, min_support=3, min_strength=0.01,
-                      enable_rule_completion=False,
+                      completion_mode="none",
                       completion_max_added=220,
-                      mirror_strength_scale=0.85,
+                      mirror_strength_scale=1.0,
                       extrap_strength_scale=0.70,
                       extrap_gain=0.25):
         """
@@ -1003,14 +1009,14 @@ class FuzzyRuleGenerator:
         Wang-Mendel 算法步骤：
           1. 对每个数据点，计算所有输入变量的最大隶属度模糊集
           2. 该组合（前件）的后件 = 该数据点的输出值
-          3. 规则强度 = 各输入变量最大隶属度的乘积
-          4. 冲突消解：同一前件下，保留强度最高的规则
-          5. 后件值 = 所有匹配数据点的加权平均输出值
+          3. 触发强度 = 各输入变量最大隶属度的乘积
+          4. 冲突消解：同一前件下，后件值 = 所有匹配数据点按触发强度加权平均的输出值
+          5. 规则权重 = 同一前件下数据点的最大触发强度
         
         参数:
           min_support: 最小支持度（匹配该规则的数据点数量）
           min_strength: 最小规则强度
-          enable_rule_completion: 是否启用规则覆盖补全
+          completion_mode: 规则覆盖补全方式，"none" / "mirror" / "mirror+extrap"
           completion_max_added: 补全规则上限
           mirror_strength_scale: 镜像规则强度衰减
           extrap_strength_scale: 外推规则强度衰减
@@ -1100,13 +1106,15 @@ class FuzzyRuleGenerator:
         total_covered = sum(r.support_count for r in self.rules)
         print(f"    数据覆盖率: {total_covered}/{n_samples} ({total_covered/n_samples*100:.1f}%)")
 
-        # 规则覆盖补全：对称镜像 + 严重偏差外推
-        if enable_rule_completion:
+        if completion_mode not in RULE_COMPLETION_MODES:
+            raise ValueError(f"未知的规则补全方式: {completion_mode}，可选 {RULE_COMPLETION_MODES}")
+        if completion_mode != "none":
             self._complete_rule_coverage(
                 max_added=completion_max_added,
                 mirror_strength_scale=mirror_strength_scale,
                 extrap_strength_scale=extrap_strength_scale,
-                extrap_gain=extrap_gain
+                extrap_gain=extrap_gain,
+                extrapolate=(completion_mode == "mirror+extrap")
             )
         
         return self.rules
@@ -1118,10 +1126,13 @@ class FuzzyRuleGenerator:
             return None, None
 
         mf_names = [mf.name for mf in fvar.mfs]
-        if "ZE" not in mf_names:
+        if "ZE" in mf_names:
+            ze_idx = mf_names.index("ZE")
+        elif len(mf_names) % 2 == 1:
+            ze_idx = len(mf_names) // 2
+        else:
             return None, None
 
-        ze_idx = mf_names.index("ZE")
         level_by_name = {name: i - ze_idx for i, name in enumerate(mf_names)}
         mirror_by_name = {name: mf_names[2 * ze_idx - i] for i, name in enumerate(mf_names)}
         return level_by_name, mirror_by_name
@@ -1133,12 +1144,13 @@ class FuzzyRuleGenerator:
     def _clip_outputs(consequent):
         return {k: float(np.clip(v, -1.0, 1.0)) for k, v in consequent.items()}
 
-    def _complete_rule_coverage(self, max_added=220, mirror_strength_scale=0.85,
-                                extrap_strength_scale=0.70, extrap_gain=0.25):
+    def _complete_rule_coverage(self, max_added=220, mirror_strength_scale=1.0,
+                                extrap_strength_scale=0.70, extrap_gain=0.25, extrapolate=True):
         """
-        规则覆盖补全（根治转弯缺失）：
-          1) 对称镜像：左转规则 -> 右转规则（或反向）
-          2) 偏差外推：NS/PS -> NM/PM -> NB/PB，输出按偏差级别放大
+        规则覆盖补全：
+          1) 对称镜像：前、后偏差强度同时取镜像（如 NM&NS -> PM&PS），在轨强度不变，
+             横向速度与偏航角速度后件取反；只补全数据中缺失的前件
+          2) 偏差外推（extrapolate=True 时）：NS/PS -> NM/PM -> NB/PB，输出按偏差级别放大
         """
         if len(self.rules) == 0:
             return
@@ -1198,8 +1210,10 @@ class FuzzyRuleGenerator:
             existing[key] = new_rule
             added_rules.append(new_rule)
 
+        n_mirrored = len(added_rules)
+
         # --- B. 偏差等级外推补全 ---
-        source_rules = list(self.rules) + list(added_rules)
+        source_rules = (list(self.rules) + list(added_rules)) if extrapolate else []
         for rule in source_rules:
             if len(added_rules) >= max_added:
                 break
@@ -1248,13 +1262,14 @@ class FuzzyRuleGenerator:
                     existing[key] = new_rule
                     added_rules.append(new_rule)
 
-        if len(added_rules) > 0:
-            self.rules.extend(added_rules)
-            self.rules.sort(key=lambda r: r.strength, reverse=True)
-            print(f"\n  规则覆盖补全:")
-            print(f"    新增规则: {len(added_rules)} 条")
-            print(f"    补全后总规则数: {len(self.rules)} 条")
-            print(f"    补全策略: 对称镜像 + 偏差外推")
+        self.rules.extend(added_rules)
+        self.rules.sort(key=lambda r: r.strength, reverse=True)
+        print(f"\n  规则覆盖补全 ({'对称镜像 + 偏差外推' if extrapolate else '仅对称镜像'}):")
+        print(f"    镜像新增: {n_mirrored} 条 (强度系数 {mirror_strength_scale})")
+        if extrapolate:
+            print(f"    外推新增: {len(added_rules) - n_mirrored} 条")
+        print(f"    补全后总规则数: {len(self.rules)} 条 "
+              f"(数据提取 {len(self.rules) - len(added_rules)} 条, 补全 {len(added_rules)} 条)")
     
     # ===== 评估 =====
     
@@ -1290,10 +1305,11 @@ class FuzzyRuleGenerator:
             if firing < 1e-10:
                 continue
             
-            # 加权累加
+            # 加权累加：Wang-Mendel 模式与导出的 C# 控制器一致，权值 = 触发强度 × 规则权重
+            w = firing if self._clustering_mode else firing * rule.strength
             for out_name in self.output_col_names:
-                sum_weighted[out_name] += firing * rule.consequent_values[out_name]
-            sum_weights += firing
+                sum_weighted[out_name] += w * rule.consequent_values[out_name]
+            sum_weights += w
         
         # 去模糊化：加权平均
         if sum_weights > 1e-10:
@@ -1575,8 +1591,9 @@ class FuzzyRuleGenerator:
         lines = []
         lines.append(f"// 模糊控制器 - 自动生成")
         lines.append(f"// 生成时间: {timestamp}")
+        n_completed = sum(1 for r in self.rules if r.support_count == 0)
         lines.append(f"// 数据样本数: {len(self.input_data)}")
-        lines.append(f"// 规则数: {n_rules}")
+        lines.append(f"// 规则数: {n_rules} (数据提取 {n_rules - n_completed}, 补全 {n_completed})")
         lines.append(f"// 输入变量: {', '.join(self.input_col_names)}")
         lines.append(f"// 输出变量: {', '.join(self.output_col_names)}")
         lines.append(f"//")
@@ -1637,6 +1654,8 @@ class FuzzyRuleGenerator:
                 mf_name = var_info[var_name]['set_names'][mf_idx]
                 ant_names.append(mf_name)
             comment = " & ".join(ant_names)
+            if self.rules[i].support_count == 0:
+                comment += "  [补全]"
             
             lines.append(f"        {{ {', '.join(parts)} }},  // Rule {i+1}: {comment}")
         
@@ -1944,13 +1963,16 @@ def main():
                        help='最小规则支持度（仅Wang-Mendel模式）')
     parser.add_argument('--min-strength', type=float, default=MIN_RULE_STRENGTH,
                        help='最小规则强度（仅Wang-Mendel模式）')
-    parser.add_argument('--enable-rule-completion', action='store_true',
-                       default=ENABLE_RULE_COMPLETION,
-                       help='启用规则覆盖补全（对称镜像+偏差外推），推荐开启')
+    parser.add_argument('--rule-completion', type=str, default=RULE_COMPLETION_MODE,
+                       choices=list(RULE_COMPLETION_MODES),
+                       help='规则覆盖补全方式: none=不补全, mirror=仅对称镜像(默认), '
+                            'mirror+extrap=对称镜像+偏差外推')
+    parser.add_argument('--enable-rule-completion', action='store_true', default=False,
+                       help='旧参数，等同于 --rule-completion mirror+extrap')
     parser.add_argument('--completion-max-added', type=int, default=RULE_COMPLETION_MAX_ADDED,
                        help='规则补全最多新增条数（默认220）')
     parser.add_argument('--completion-mirror-scale', type=float, default=RULE_COMPLETION_MIRROR_STRENGTH_SCALE,
-                       help='镜像规则强度衰减系数（默认0.85）')
+                       help='镜像规则强度系数，镜像规则权重 = 原规则权重 × 该系数（默认1.0）')
     parser.add_argument('--completion-extrap-scale', type=float, default=RULE_COMPLETION_EXTRAP_STRENGTH_SCALE,
                        help='偏差外推规则强度衰减系数（默认0.70）')
     parser.add_argument('--completion-extrap-gain', type=float, default=RULE_COMPLETION_EXTRAP_GAIN,
@@ -1965,6 +1987,8 @@ def main():
                        help='打印规则列表')
     
     args = parser.parse_args()
+    if args.enable_rule_completion:
+        args.rule_completion = "mirror+extrap"
     
     # 检查数据文件
     if not args.data:
@@ -2001,10 +2025,11 @@ def main():
         print(f"  中心变量模糊集数: {args.n_center}")
         if args.mf_method == 'data-driven':
             print(f"  MF最小间距比例: {args.min_spacing_ratio}")
-        print(f"  规则覆盖补全: {args.enable_rule_completion}")
-        if args.enable_rule_completion:
+        print(f"  规则覆盖补全: {args.rule_completion}")
+        if args.rule_completion != "none":
             print(f"  补全最大新增规则: {args.completion_max_added}")
             print(f"  补全镜像强度衰减: {args.completion_mirror_scale}")
+        if args.rule_completion == "mirror+extrap":
             print(f"  补全外推强度衰减: {args.completion_extrap_scale}")
             print(f"  补全外推输出增益: {args.completion_extrap_gain}")
         print(f"  可能的最大规则数: {args.n_diff**2 * args.n_center**2}")
@@ -2035,7 +2060,7 @@ def main():
         rules = generator.extract_rules(
             min_support=args.min_support,
             min_strength=args.min_strength,
-            enable_rule_completion=args.enable_rule_completion,
+            completion_mode=args.rule_completion,
             completion_max_added=args.completion_max_added,
             mirror_strength_scale=args.completion_mirror_scale,
             extrap_strength_scale=args.completion_extrap_scale,
