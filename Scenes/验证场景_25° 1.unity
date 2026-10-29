@@ -467,7 +467,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -638,7 +638,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
@@ -680,6 +680,7 @@ MonoBehaviour:
   tape: {fileID: 1462255779}
   frontCenterSensor: {fileID: 1988725124}
   rearCenterSensor: {fileID: 1550834400}
+  vehicleBody: {fileID: 714007403}
   saveDirectory: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\piancha
   filePrefix: ppo_25deg
   sampleInterval: 0

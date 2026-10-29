@@ -4,7 +4,7 @@ using System.Text;
 using UnityEngine;
 
 /// <summary>
-/// 独立记录前、后中心磁传感器相对磁条的横向偏差，以及车体航向误差。
+/// 独立记录前、后中心磁传感器相对磁条的横向偏差、车体航向误差，以及车体实际前进速度。
 /// 不依赖 MyCarAgent 或模糊控制器，PPO 与规则库控制时都可以挂在车上使用。
 /// </summary>
 public class PathDeviationRecorder : MonoBehaviour
@@ -19,6 +19,8 @@ public class PathDeviationRecorder : MonoBehaviour
     public Transform frontCenterSensor;
     [Tooltip("后中磁传感器")]
     public Transform rearCenterSensor;
+    [Tooltip("用于读取车体速度。留空则使用本物体或其父物体上的 Rigidbody。前进速度为刚体速度在车头方向上的投影，单位 m/s。")]
+    public Rigidbody vehicleBody;
 
     [Header("保存")]
     [Tooltip("保存目录。留空则使用 Application.persistentDataPath")]
@@ -32,8 +34,17 @@ public class PathDeviationRecorder : MonoBehaviour
     string filePath;
     bool headerWritten;
     bool warned;
+    bool warnedMissingBody;
     int sampleCount;
     StreamWriter writer;
+
+    void Awake()
+    {
+        if (vehicleBody == null)
+            vehicleBody = GetComponent<Rigidbody>();
+        if (vehicleBody == null)
+            vehicleBody = GetComponentInParent<Rigidbody>();
+    }
 
     void OnDisable()
     {
@@ -76,7 +87,8 @@ public class PathDeviationRecorder : MonoBehaviour
         line.Append(Time.time.ToString("F4", culture)).Append(',');
         line.Append(frontLat.ToString("F6", culture)).Append(',');
         line.Append(rearLat.ToString("F6", culture)).Append(',');
-        line.Append(headingDeg.ToString("F4", culture));
+        line.Append(headingDeg.ToString("F4", culture)).Append(',');
+        line.Append(SampleForwardSpeed().ToString("F4", culture));
         writer.WriteLine(line.ToString());
         sampleCount++;
         if (sampleCount % 200 == 0)
@@ -121,6 +133,21 @@ public class PathDeviationRecorder : MonoBehaviour
         return true;
     }
 
+    float SampleForwardSpeed()
+    {
+        if (vehicleBody == null)
+        {
+            if (!warnedMissingBody)
+            {
+                warnedMissingBody = true;
+                Debug.LogWarning("[PathDeviation] 未找到 Rigidbody，前进速度记为 0。");
+            }
+            return 0f;
+        }
+
+        return Vector3.Dot(vehicleBody.linearVelocity, transform.forward);
+    }
+
     static void AlignTangentToTravel(Vector3 travelForward, ref Vector3 tangent, ref float signedLateral)
     {
         tangent.y = 0f;
@@ -148,7 +175,7 @@ public class PathDeviationRecorder : MonoBehaviour
         string fileName = $"{prefix}_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
         filePath = Path.Combine(directory, fileName);
         writer = new StreamWriter(filePath, false, new UTF8Encoding(false));
-        writer.WriteLine("time_s,front_lat_m,rear_lat_m,heading_deg");
+        writer.WriteLine("time_s,front_lat_m,rear_lat_m,heading_deg,forward_speed_mps");
         headerWritten = true;
         sampleCount = 0;
         Debug.Log($"[PathDeviation] 开始记录: {filePath}");
