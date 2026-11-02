@@ -436,10 +436,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: d6ea16031f7809247b7b1936c52d7c00, type: 3}
+  m_Model: {fileID: 5022602860645237092, guid: cd7ce6e44b50d3b408f7a976df4d351c, type: 3}
   m_InferenceDevice: 0
   m_BehaviorType: 2
-  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_RB_261014
+  m_BehaviorName: MagneticTrackingAgentCar_V1.0_MoHu_ZL_RB_V04_261029
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
@@ -467,7 +467,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc67329c47f10249bab340ecada9975, type: 3}
   m_Name: 
@@ -492,11 +492,11 @@ MonoBehaviour:
   - {fileID: 1240964160}
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
-  constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.2
-  maxOmegaDeg: 30
+  constantForwardSpeed: 0.4
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 60
   maxField: 8
-  maxEpisodeTime: 110
+  maxEpisodeTime: 60
   alignedThresholdPercent: 0.15
   centerThresholdPercent: 0.65
   alignedAngularVelocityThresholdDeg: 15
@@ -522,21 +522,21 @@ MonoBehaviour:
   trackingSigma: 0.25
   nearLineDampingCoeff: 0.5
   nearLineDampingRange: 0.5
-  diffRateScale: 1
+  diffRateScale: 2
   headingErrorPenaltyCoeff: 0.3
   actionDeltaPenaltyCoeff: 0.25
   enableRewardTracking: 0
   enableDebugLog: 0
   enableDerailmentLogging: 0
   derailmentLogPath: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\Data_Record
-  stableAlignedTime: 0.5
-  maxDeltaLateralSpeed: 0.02
-  maxDeltaOmegaDeg: 4
+  stableAlignedTime: 0.25
+  maxDeltaLateralSpeed: 0.04
+  maxDeltaOmegaDeg: 8
   outputDecayFactor: 1
   actionMode: 1
   observationMode: 1
   targetChangePenaltyCoeff: 0.1
-  actionDelayMaxSteps: 2
+  actionDelayMaxSteps: 0
   enableKick: 1
   kickStartGlobalStep: 0
   kickStartDelay: 1
@@ -552,12 +552,12 @@ MonoBehaviour:
   obsNoiseCorrelation: 0
   startRot: {x: 0, y: 0, z: 0, w: 1}
   spawnPositions:
-  - {x: 0, y: 0.12, z: 0}
-  - {x: 12.049, y: 0.12, z: 13.076}
-  - {x: 16.049, y: 0.12, z: 13.076}
-  - {x: 35.906, y: 0.12, z: 19.933}
-  - {x: 39.906, y: 0.12, z: 19.933}
-  - {x: 57.857, y: 0.12, z: 30.276}
+  - {x: -2, y: 0.12, z: 0}
+  - {x: 14.049, y: 0.12, z: 13.076}
+  - {x: 14.049, y: 0.12, z: 13.076}
+  - {x: 37.906, y: 0.12, z: 19.933}
+  - {x: 37.906, y: 0.12, z: 19.933}
+  - {x: 59.857, y: 0.12, z: 30.276}
   spawnYawAngles:
   - 90
   - -90
@@ -565,8 +565,8 @@ MonoBehaviour:
   - -90
   - 90
   - -90
-  maxRandomYawAngle: 12
-  randomYawRange: 12
+  maxRandomYawAngle: 8
+  randomYawRange: 8
   useFixedYaw: 0
   fixedYawAngle: 12
   enableYawCurriculum: 0
@@ -634,9 +634,9 @@ MonoBehaviour:
   - {fileID: 1240964160}
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
-  constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.1
-  maxOmegaDeg: 120
+  constantForwardSpeed: 0.4
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 60
   maxField: 8
   smoothingAlpha: 0.3
   showPredictedActions: 0
@@ -648,7 +648,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 714007401}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2952aa758d246b34883c23bb189ba168, type: 3}
   m_Name: 
@@ -663,14 +663,14 @@ MonoBehaviour:
   - {fileID: 1240964160}
   rb: {fileID: 714007403}
   myCarMotion: {fileID: 714007404}
-  constantForwardSpeed: 0.2
-  maxLateralSpeed: 0.2
-  maxOmegaDeg: 30
+  constantForwardSpeed: 0.4
+  maxLateralSpeed: 0.4
+  maxOmegaDeg: 60
   maxField: 8
   smoothingAlpha: 1
   enableRateLimiter: 1
-  maxDeltaLateralSpeed: 0.02
-  maxDeltaOmegaDeg: 4
+  maxDeltaLateralSpeed: 0.04
+  maxDeltaOmegaDeg: 8
   controlDelaySteps: 0
   showDebugInfo: 1
   showSensorValues: 1
@@ -690,6 +690,7 @@ MonoBehaviour:
   tape: {fileID: 1462255779}
   frontCenterSensor: {fileID: 1988725124}
   rearCenterSensor: {fileID: 1550834400}
+  vehicleBody: {fileID: 0}
   saveDirectory: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\piancha
   filePrefix: path_deviation
   sampleInterval: 0
