@@ -680,6 +680,7 @@ MonoBehaviour:
   tape: {fileID: 1462255779}
   frontCenterSensor: {fileID: 1988725124}
   rearCenterSensor: {fileID: 1550834400}
+  vehicleBody: {fileID: 714007403}
   saveDirectory: D:\XiaoYiFei\Project\Unity\XYF_Car_Test\piancha
   filePrefix: ppo_55deg
   sampleInterval: 0

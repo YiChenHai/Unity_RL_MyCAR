@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -1534,7 +1535,7 @@ class FuzzyRuleGenerator:
         lines.append(f"    /// </summary>")
         lines.append(f"    public static string GetInfo()")
         lines.append(f"    {{")
-        lines.append(f"        return $\"FuzzyController(Clustering): {{N_RULES}} rules, {{N_INPUTS}} inputs, generated {timestamp}\";")
+        lines.append(f"        return $\"{class_name}(Clustering): {{N_RULES}} rules, {{N_INPUTS}} inputs, generated {timestamp}\";")
         lines.append(f"    }}")
         lines.append(f"}}")
         
@@ -1811,7 +1812,7 @@ class FuzzyRuleGenerator:
         lines.append(f"    /// </summary>")
         lines.append(f"    public static string GetInfo()")
         lines.append(f"    {{")
-        lines.append(f"        return $\"FuzzyController: {{N_RULES}} rules, generated {timestamp}\";")
+        lines.append(f"        return $\"{class_name}: {{N_RULES}} rules, generated {timestamp}\";")
         lines.append(f"    }}")
         lines.append(f"}}")
         
@@ -2075,7 +2076,11 @@ def main():
         generator.evaluate_dataset()
     
     # Step 5: 导出C#
-    generator.export_csharp(args.output)
+    # 类名取输出文件名，使 RuleLib 中多个规则库可以同时编译
+    class_name = re.sub(r'\W', '_', os.path.splitext(os.path.basename(args.output))[0])
+    if class_name[0].isdigit():
+        class_name = '_' + class_name
+    generator.export_csharp(args.output, class_name=class_name)
     
     # 可视化
     if args.visualize:
